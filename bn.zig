@@ -4,6 +4,10 @@ const assert = std.debug.assert;
 
 const printf = std.io.stdout.printf;
 
+error InvalidBase;
+error ParseError;
+error InputTooShort;
+
 // TODO: Use addWithOverflow and friends instead so we can use wider (64-bit) base types.
 pub const Limb = u32;
 pub const DoubleLimb = @IntType(false, 2 * 8 * @sizeOf(Limb));
@@ -101,28 +105,62 @@ pub const Bn = struct {
         }
     }
 
-    // This is very similar to the add code, except we need to build up each limb from input digits
-    // and construct the carry from there.
-    pub fn set_str(self: &Self, value: []const u8) {
-        const base = 10;
+    // Converts a single character using the specified radix-map.
+    fn convertBaseChar(value: u8, radix: u8) -> %u8 {
+        const result = {
+            if (value >= '0' and value <= '9') {
+                value - '0'
+            } else if (value >= 'A' and value <= 'Z') {
+                value - 'A' + 10
+            } else if (value >= 'a' and value <= 'z') {
+                value - 'a' + 36
+            } else {
+                @maxValue(u8)
+            }
+        };
 
-        // Each digit of base n takes log2(n) bits to represent it.
-        // Multiply by how many digits we need to represent and then divide by limb size to get the
-        // required number of limbs.
+        if (result < radix) {
+            result
+        } else {
+            error.ParseError
+        }
+    }
+
+    // Set the big number to the value specified by the string.
+    //
+    // The input radix accepts values from the range [2, 62].
+    // Digits are used first, then upper-case letters and finally lower-case letters.
+    //
+    // If an error occurs no guarantees are made about the resulting state of the Bn.
+    pub fn set_str(self: &Self, base: u8, value: []const u8) -> %void {
+        if (value.len == 0) {
+            return error.InputTooShort;
+        }
+        if (base < 2 or base > 62) {
+            return error.InvalidBase;
+        }
+
         const approxLength = ((cilog2(base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
-
-        // Approximate the length of the input before.
         self.zero();
         self.zeroExtend(approxLength);
 
-        // TODO: We can special case base 10 and power of twos.
+        const tail = {
+            if (value[0] != '-') {
+                self.positive = true;
+                value
+            } else {
+                self.positive = false;
+                value[1..]
+            }
+        };
+
         var mult: Limb = 1;
         var carry: Limb = 0;
         var limb_index: usize = 0;
 
         // TODO: How to reverse iterate.
-        for (value) |_, i| {
-            const d = value[value.len - i - 1] - '0';  // Assumes ascii input.
+        for (tail) |_, i| {
+            const d = %return convertBaseChar(value[value.len - i - 1], base);
             self.limbs.items[limb_index] = _muladd_limb_wc(self.limbs.items[limb_index], d, mult, &carry);
 
             if (carry != 0) {
@@ -131,7 +169,8 @@ pub const Bn = struct {
             }
 
             var result: Limb = undefined;
-            if (@mulWithOverflow(Limb, mult, 10, &result)) {
+            if (@mulWithOverflow(Limb, mult, base, &result)) {
+                limb_index += 1;
                 mult = 1;
             } else {
                 mult = result;
@@ -379,17 +418,6 @@ test "test_to_int" {
 }
 
 test "test_to_str" {
-    var a = Bn.init();
-    defer a.deinit();
-
-    a.set_str("1");
-    assert(??a.toInt() == 1);
-
-    a.set_str("1238");
-    assert(??a.toInt() == 1238);
-
-    a.set_str("1230912412");
-    assert(??a.toInt() == 1230912412);
 
     // Add overflow limb
 }
@@ -397,6 +425,35 @@ test "test_to_str" {
 test "test_from_str" {
     var a = Bn.init();
     defer a.deinit();
+
+    %%a.set_str(10, "1");
+    assert(??a.toInt() == 1);
+
+    %%a.set_str(10, "1238");
+    assert(??a.toInt() == 1238);
+
+    %%a.set_str(10, "1230912412");
+    assert(??a.toInt() == 1230912412);
+
+    %%a.set_str(16, "FFFFFFFF");
+    assert(??a.toUInt() == @maxValue(u32));
+
+    // TODO: Remove test assumption that on size of limb.
+    %%a.set_str(16, "FFFFFFFFFF");
+    assert(a.limbs.items[0] == @maxValue(Limb));
+    assert(a.limbs.items[1] == 0xFF);
+
+    %%a.set_str(16, "FFEEFFEFAABBAABACCDDCCDC");
+    assert(a.limbs.items[0] == 0xCCDDCCDC);
+    assert(a.limbs.items[1] == 0xAABBAABA);
+    assert(a.limbs.items[2] == 0xFFEEFFEF);
+
+    %%a.set_str(10, "-10");
+    assert(??a.toInt() == -10);
+
+    // TODO: Requires compiler support for equality against errors
+    //var r = a.set_str("A123");
+    //assert(r == error.ParseError);
 }
 
 test "test_cmp" {
