@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
+const printf = std.io.stdout.printf;
+
 // TODO: Use addWithOverflow and friends instead so we can use wider (64-bit) base types.
 pub const Limb = u32;
 pub const DoubleLimb = @IntType(false, 2 * 8 * @sizeOf(Limb));
@@ -67,6 +69,12 @@ pub const Bn = struct {
         }
     }
 
+    pub fn zero(self: &Self) {
+        // Always keep one limb available
+        self.limbs.resizeDown(1);
+        self.limbs.items[0] = 0;
+    }
+
     // Zero-extend new allocation space in preparation for an operation.
     //
     // This modifies the actual array buffer content, and a `reduce` call should be performed after
@@ -83,7 +91,8 @@ pub const Bn = struct {
 
     // Reduce trailing zeroes that may exist following an operation.
     pub fn reduce(self: &Self) {
-        while (self.limbs.len != 0) {
+        // Always keep one limb available
+        while (self.limbs.len != 1) {
             const item = self.limbs.pop();
             if (item != 0) {
                 %%self.limbs.append(item);
@@ -92,8 +101,55 @@ pub const Bn = struct {
         }
     }
 
-    pub fn set_str(self: &Self, value: []const u8) {}
+    // This is very similar to the add code, except we need to build up each limb from input digits
+    // and construct the carry from there.
+    pub fn set_str(self: &Self, value: []const u8) {
+        const base = 10;
+
+        // Each digit of base n takes log2(n) bits to represent it.
+        // Multiply by how many digits we need to represent and then divide by limb size to get the
+        // required number of limbs.
+        const approxLength = ((cilog2(base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
+
+        // Approximate the length of the input before.
+        self.zero();
+        self.zeroExtend(approxLength);
+
+        // TODO: We can special case base 10 and power of twos.
+        var mult: Limb = 1;
+        var carry: Limb = 0;
+        var limb_index: usize = 0;
+
+        // TODO: How to reverse iterate.
+        for (value) |_, i| {
+            const d = value[value.len - i - 1] - '0';  // Assumes ascii input.
+            self.limbs.items[limb_index] = _muladd_limb_wc(self.limbs.items[limb_index], d, mult, &carry);
+
+            if (carry != 0) {
+                limb_index += 1;
+                self.limbs.items[limb_index] = carry;
+            }
+
+            var result: Limb = undefined;
+            if (@mulWithOverflow(Limb, mult, 10, &result)) {
+                mult = 1;
+            } else {
+                mult = result;
+            }
+        }
+
+        self.reduce();
+    }
 };
+
+fn cilog2(v: u64) -> u64 {
+    var r: u64 = 0;
+    var n: u64 = v; // Note: Input arguments are const by default.
+    while (n != 0) : (n >>= 1) {
+        r += 1;
+    }
+    r
+}
 
 pub fn cmp(a: &Bn, b: &Bn) -> Cmp {
     if (a.positive and !b.positive) {
@@ -264,9 +320,7 @@ pub fn mul(dst: &Bn, a: &Bn, b: &Bn) {
     a.positive = true;
     b.positive = true;
 
-    // TODO: Add proper zeroing function and not just ensureCapacity check else we will get
-    // bad results.
-    dst.set(u8, 0);
+    dst.zero();
 
     if (a.limbs.len >= b.limbs.len) {
         _muladd3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
@@ -327,6 +381,17 @@ test "test_to_int" {
 test "test_to_str" {
     var a = Bn.init();
     defer a.deinit();
+
+    a.set_str("1");
+    assert(??a.toInt() == 1);
+
+    a.set_str("1238");
+    assert(??a.toInt() == 1238);
+
+    a.set_str("1230912412");
+    assert(??a.toInt() == 1230912412);
+
+    // Add overflow limb
 }
 
 test "test_from_str" {
