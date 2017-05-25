@@ -422,7 +422,7 @@ pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void{
     dst.positive = sign;
 }
 
-test "test_default_zero" {
+test "test_defaultZero" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -430,7 +430,7 @@ test "test_default_zero" {
     assert(a.positive);
 }
 
-test "test_from_int" {
+test "set" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -447,7 +447,7 @@ test "test_from_int" {
     assert(a.positive == false);
 }
 
-test "test_to_int" {
+test "toInt" {
     var a = %%Bn.init();
     defer a.deinit();
     assert(??a.toInt() == 0);
@@ -466,7 +466,7 @@ test "test_to_int" {
     assert(??a.toInt() == -5);
 }
 
-test "test_bitLen" {
+test "bitLen" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -486,7 +486,7 @@ test "test_bitLen" {
     assert(a.bitLen() == 33);
 }
 
-test "test_abs" {
+test "abs" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -503,7 +503,7 @@ test "test_abs" {
     assert(??a.toInt() == 1);
 }
 
-test "test_neg" {
+test "neg" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -520,7 +520,7 @@ test "test_neg" {
     assert(??a.toInt() == 1);
 }
 
-test "test_isZero" {
+test "isZero" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -531,7 +531,7 @@ test "test_isZero" {
     assert(!a.isZero());
 }
 
-test "test_sign" {
+test "sign" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -545,7 +545,7 @@ test "test_sign" {
     assert(a.sign() == -1);
 }
 
-test "test_popcount" {
+test "popcount" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -568,7 +568,7 @@ test "test_popcount" {
     assert(a.popcount() == 34);
 }
 
-test "test_from_str" {
+test "fromStr" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -602,7 +602,7 @@ test "test_from_str" {
     //assert(r == error.ParseError);
 }
 
-test "test_cmp" {
+test "cmp" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -622,7 +622,7 @@ test "test_cmp" {
     assert(cmp(&a, &b) == Cmp.Equal);
 }
 
-test "test_add_limb_wac" {
+test "_addLimbWc" {
     var a: Limb = 3;
     var b: Limb = @maxValue(Limb);
     var c: Limb = 7;
@@ -632,14 +632,10 @@ test "test_add_limb_wac" {
     assert(d == 9);
 }
 
-test "test_mul_limb_wc" {
-    var a: Limb = 3;
-    var b: Limb = @maxValue(Limb);
-    var c: Limb = 7;
-    var d = _addLimbWc(a, b, &c);
+test "_muladdLimbWc" {
 }
 
-test "test_subLimbWb" {
+test "_subLimbWb" {
     var a: Limb = 5;
     var b: Limb = 4;
     var c: Limb = 3;
@@ -649,7 +645,7 @@ test "test_subLimbWb" {
     assert(d == @maxValue(Limb) - 1);
 }
 
-test "test_sub_default" {
+test "subSimple" {
     var a = %%Bn.init();
     defer a.deinit();
     %%a.set(u32, 5);
@@ -669,7 +665,7 @@ test "test_sub_default" {
     assert(??a.toInt() == -3);
 }
 
-test "test_add_default" {
+test "addSingle" {
     var a = %%Bn.init();
     defer a.deinit();
     %%a.set(u32, 5);
@@ -695,7 +691,7 @@ test "test_add_default" {
     assert(??a.toUInt() == 52);
 }
 
-test "test_add_negative" {
+test "addSingleNegative" {
     var a = %%Bn.init();
     defer a.deinit();
     %%a.set(u32, 5);
@@ -728,10 +724,23 @@ test "test_add_negative" {
     //assert(??a.toInt() == -8);
 }
 
-test "test_add_reallocate" {
+test "addMulti" {
+    var a = %%Bn.init();
+    defer a.deinit();
+    %%a.setStr(16, "FFFFFFFF");
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.setStr(16, "FFFFFFFF");
+
+    var c = %%Bn.init();
+    defer c.deinit();
+
+    %%add(&c, &a, &b);
+    // TODO: Implement toStr before assertions
 }
 
-test "test_mul_default" {
+test "mulSingle" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -767,5 +776,18 @@ test "test_mul_default" {
     assert(??a.toUInt() == 7020);
 }
 
-test "test_mul_reallocate" {
+test "mulMulti" {
+    var a = %%Bn.init();
+    defer a.deinit();
+    %%a.setStr(16, "FFFFFFFF");
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.setStr(16, "FFFFFFFF");
+
+    var c = %%Bn.init();
+    defer c.deinit();
+
+    %%mul(&c, &a, &b);
+    // TODO: Implement toStr before assertions
 }
