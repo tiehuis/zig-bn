@@ -126,6 +126,45 @@ pub const Bn = struct {
         }
     }
 
+    // Returns the number of bits required to represent the bignum.
+    //
+    // Negative values return the same count as their positive counterparts.
+    pub fn bitlen(self: &Self) -> usize {
+        assert(self.limbs.len > 0);
+        const base_bits = 8 * @sizeOf(Limb) * (self.limbs.len - 1);
+        base_bits + (8 * @sizeOf(Limb) - @clz(self.limbs.items[self.limbs.len - 1]))
+    }
+
+    pub fn abs(self: &Self) {
+        self.positive = true;
+    }
+
+    pub fn neg(self: &Self) {
+        self.positive = !self.positive;
+    }
+
+    pub fn isZero(self: &Self) -> bool {
+        self.limbs.len == 1 and self.limbs.items[0] == 0
+    }
+
+    pub fn sign(self: &Self) -> isize {
+        if (self.isZero()) {
+            return 0;   // These return statements are required to avoid a compile error!
+        } else if (self.positive) {
+            return 1;
+        } else {
+            -1
+        }
+    }
+
+    pub fn popcount(self: &Self) -> usize {
+        var pop: usize = 0;
+        for (self.limbs.toSliceConst()) |b| {
+            pop += popcnt(b);
+        }
+        pop
+    }
+
     // Set the big number to the value specified by the string.
     //
     // The input radix accepts values from the range [2, 62].
@@ -180,6 +219,15 @@ pub const Bn = struct {
         self.reduce();
     }
 };
+
+fn popcnt(v: Limb) -> usize {
+    var n: Limb = v;
+    var sum: usize = 0;
+    while (n != 0) : (n >>= 1) {
+        sum += n & 1;
+    }
+    sum
+}
 
 fn cilog2(v: u64) -> u64 {
     var r: u64 = 0;
@@ -418,9 +466,106 @@ test "test_to_int" {
     assert(??a.toInt() == -5);
 }
 
-test "test_to_str" {
+test "test_bitlen" {
+    var a = %%Bn.init();
+    defer a.deinit();
 
-    // Add overflow limb
+    %%a.set(u8, 0);
+    assert(a.bitlen() == 0);
+
+    %%a.set(u8, 1);
+    assert(a.bitlen() == 1);
+
+    %%a.set(u8, 0xFF);
+    assert(a.bitlen() == 8);
+
+    %%a.set(Limb, @maxValue(Limb));
+    assert(a.bitlen() == 8 * @sizeOf(Limb));
+
+    %%a.set_str(16, "1FFFFFFFF");
+    assert(a.bitlen() == 33);
+}
+
+test "test_abs" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.set(u8, 0);
+    a.abs();
+    assert(??a.toInt() == 0);
+
+    %%a.set(u8, 1);
+    a.abs();
+    assert(??a.toInt() == 1);
+
+    %%a.set(i8, -1);
+    a.abs();
+    assert(??a.toInt() == 1);
+}
+
+test "test_neg" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.set(u8, 0);
+    a.neg();
+    assert(??a.toInt() == 0);
+
+    %%a.set(u8, 1);
+    a.neg();
+    assert(??a.toInt() == -1);
+
+    %%a.set(i8, -1);
+    a.neg();
+    assert(??a.toInt() == 1);
+}
+
+test "test_isZero" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.set(u8, 0);
+    assert(a.isZero());
+
+    %%a.set(u8, 1);
+    assert(!a.isZero());
+}
+
+test "test_sign" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.set(u8, 0);
+    assert(a.sign() == 0);
+
+    %%a.set(u8, 234);
+    assert(a.sign() == 1);
+
+    %%a.set(i8, -23);
+    assert(a.sign() == -1);
+}
+
+test "test_popcount" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.set(u8, 0);
+    assert(a.popcount() == 0);
+
+    %%a.set(u8, 1);
+    assert(a.popcount() == 1);
+
+    %%a.set(u16, 0x1FF);
+    assert(a.popcount() == 9);
+
+    %%a.set_str(16, "FFFFFFFF");
+    assert(a.popcount() == 32);
+
+    %%a.set_str(16, "2FFFFFFFF");
+    assert(a.popcount() == 33);
+
+    %%a.set_str(16, "3FFFFFFFF");
+    assert(a.popcount() == 34);
 }
 
 test "test_from_str" {
