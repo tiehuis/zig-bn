@@ -14,9 +14,6 @@ pub const DoubleLimb = @IntType(false, 2 * 8 * @sizeOf(Limb));
 pub const Limbs = std.ArrayList(Limb);
 pub const Cmp = std.math.Cmp;
 
-// The default allocator to use for all subsequent Bn initializations.
-const allocator = std.debug.global_allocator;
-
 // Represents a single Big Number.
 pub const Bn = struct {
     const Self = this;
@@ -24,9 +21,11 @@ pub const Bn = struct {
     limbs: Limbs,
     positive: bool,
 
-    pub fn init() -> Self {
+    pub fn init() -> %Self {
+        // TODO: Want to be able to set allocator but don't really want to require every init
+        // call to pass it through. Global value?
         var limbs = Limbs.init(&std.debug.global_allocator);
-        %%limbs.append(0);
+        %return limbs.append(0);
 
         Self {
             .limbs = limbs,
@@ -56,11 +55,11 @@ pub const Bn = struct {
         }
     }
 
-    pub fn set(self: &Self, comptime T: type, value: T) {
+    pub fn set(self: &Self, comptime T: type, value: T) -> %void {
         comptime assert(@typeId(T) == builtin.TypeId.Int);
         comptime assert(@sizeOf(T) <= @sizeOf(Limb));   // TODO: Should allow halving 64-bit to 32-bit
 
-        %%self.limbs.resize(1);
+        %return self.limbs.resize(1);
 
         if (!T.is_signed) {
             self.limbs.items[0] = Limb(value);
@@ -83,9 +82,9 @@ pub const Bn = struct {
     //
     // This modifies the actual array buffer content, and a `reduce` call should be performed after
     // the operation to reclaim any unused limbs.
-    pub fn zeroExtend(self: &Self, n: usize) {
+    pub fn zeroExtend(self: &Self, n: usize) -> %void {
         const len = self.limbs.len;
-        %%self.limbs.resize(n);
+        %return self.limbs.resize(n);
 
         var i = len;
         while (i <= self.limbs.len) : (i += 1) {
@@ -99,6 +98,7 @@ pub const Bn = struct {
         while (self.limbs.len != 1) {
             const item = self.limbs.pop();
             if (item != 0) {
+                // TODO: This will never reallocate. Just inspect before pop though.
                 %%self.limbs.append(item);
                 break;
             }
@@ -142,7 +142,7 @@ pub const Bn = struct {
 
         const approxLength = ((cilog2(base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
         self.zero();
-        self.zeroExtend(approxLength);
+        %return self.zeroExtend(approxLength);
 
         const tail = {
             if (value[0] != '-') {
@@ -262,24 +262,24 @@ fn _add3(dst: []Limb, a: []Limb, b: []Limb) {
 }
 
 // dst = a + b
-pub fn add(dst: &Bn, a: &Bn, b: &Bn) {
+pub fn add(dst: &Bn, a: &Bn, b: &Bn) -> %void {
     if (a.positive != b.positive) {
         if (a.positive) {
             b.positive = true;
-            sub(dst, a, b);
+            %return sub(dst, a, b);
             b.positive = false
         } else {
             a.positive = true;
-            sub(dst, b, a);
+            %return sub(dst, b, a);
             a.positive = false;
         }
     } else {
         if (a.limbs.len >= b.limbs.len) {
-            dst.zeroExtend(a.limbs.len + 1);
+            %return dst.zeroExtend(a.limbs.len + 1);
             _add3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
             dst.reduce();
         } else {
-            dst.zeroExtend(b.limbs.len + 1);
+            %return dst.zeroExtend(b.limbs.len + 1);
             _add3(dst.limbs.items, b.limbs.toSlice(), a.limbs.toSlice());
             dst.reduce();
         }
@@ -299,20 +299,21 @@ fn _sub3(dst: []Limb, a: []Limb, b: []Limb) {
 }
 
 // dst = a - b
-pub fn sub(dst: &Bn, a: &Bn, b: &Bn) {
+pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
     const cr = cmp(a, b);
     if (cr == Cmp.Greater) {
-        dst.zeroExtend(b.limbs.len);
+        %return dst.zeroExtend(b.limbs.len);
         _sub3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
         dst.reduce();
         dst.positive = true;
     } else if (cr == Cmp.Less) {
-        dst.zeroExtend(a.limbs.len);
+        %return dst.zeroExtend(a.limbs.len);
         _sub3(dst.limbs.items, b.limbs.toSlice(), a.limbs.toSlice());
         dst.reduce();
         dst.positive = false;
     } else {
-        dst.set(u8, 0);
+        // Limb size will never be smaller than u8.
+        %%dst.set(u8, 0);
     }
 }
 
@@ -350,12 +351,12 @@ pub fn _muladd3(dst: []Limb, a: []Limb, b: []Limb) {
 }
 
 // dst = a * b
-pub fn mul(dst: &Bn, a: &Bn, b: &Bn) {
+pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void{
     const sign = a == b;
     const a_sign = a.positive;
     const b_sign = b.positive;
 
-    dst.zeroExtend(a.limbs.len + b.limbs.len + 1);
+    %return dst.zeroExtend(a.limbs.len + b.limbs.len + 1);
     a.positive = true;
     b.positive = true;
 
@@ -374,7 +375,7 @@ pub fn mul(dst: &Bn, a: &Bn, b: &Bn) {
 }
 
 test "test_default_zero" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
 
     assert(a.limbs.items[0] == 0);
@@ -382,24 +383,24 @@ test "test_default_zero" {
 }
 
 test "test_from_int" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
 
-    a.set(u8, 5);
+    %%a.set(u8, 5);
     assert(a.limbs.items[0] == 5);
     assert(a.positive == true);
 
-    a.set(u16, @maxValue(u16));
+    %%a.set(u16, @maxValue(u16));
     assert(a.limbs.items[0] == @maxValue(u16));
     assert(a.positive == true);
 
-    a.set(i32, -5);
+    %%a.set(i32, -5);
     assert(a.limbs.items[0] == 5);
     assert(a.positive == false);
 }
 
 test "test_to_int" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
     assert(??a.toInt() == 0);
 
@@ -423,7 +424,7 @@ test "test_to_str" {
 }
 
 test "test_from_str" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
 
     %%a.set_str(10, "1");
@@ -452,27 +453,27 @@ test "test_from_str" {
     assert(??a.toInt() == -10);
 
     // TODO: Requires compiler support for equality against errors
-    //var r = a.set_str("A123");
+    //var r = %%a.set_str("A123");
     //assert(r == error.ParseError);
 }
 
 test "test_cmp" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
 
-    var b = Bn.init();
+    var b = %%Bn.init();
     defer b.deinit();
 
-    a.set(u8, 0);
-    b.set(u8, 1);
+    %%a.set(u8, 0);
+    %%b.set(u8, 1);
     assert(cmp(&a, &b) == Cmp.Less);
 
-    a.set(u8, 1);
-    b.set(u8, 0);
+    %%a.set(u8, 1);
+    %%b.set(u8, 0);
     assert(cmp(&a, &b) == Cmp.Greater);
 
-    a.set(u8, 1);
-    b.set(u8, 1);
+    %%a.set(u8, 1);
+    %%b.set(u8, 1);
     assert(cmp(&a, &b) == Cmp.Equal);
 }
 
@@ -504,81 +505,81 @@ test "test_sub_limb_wb" {
 }
 
 test "test_sub_default" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
-    a.set(u32, 5);
+    %%a.set(u32, 5);
 
-    var b = Bn.init();
+    var b = %%Bn.init();
     defer b.deinit();
-    b.set(u32, 5);
+    %%b.set(u32, 5);
 
-    var c = Bn.init();
+    var c = %%Bn.init();
     defer c.deinit();
-    c.set(u32, 8);
+    %%c.set(u32, 8);
 
-    sub(&a, &c, &b);
+    %%sub(&a, &c, &b);
     assert(??a.toInt() == 3);
 
-    sub(&a, &b, &c);
+    %%sub(&a, &b, &c);
     assert(??a.toInt() == -3);
 }
 
 test "test_add_default" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
-    a.set(u32, 5);
+    %%a.set(u32, 5);
 
-    var b = Bn.init();
+    var b = %%Bn.init();
     defer b.deinit();
-    b.set(u32, 7);
+    %%b.set(u32, 7);
 
-    var c = Bn.init();
+    var c = %%Bn.init();
     defer c.deinit();
-    c.set(u32, 13);
+    %%c.set(u32, 13);
 
-    add(&a, &b, &c);
+    %%add(&a, &b, &c);
     assert(??a.toUInt() == 20);
 
-    add(&a, &c, &b);
+    %%add(&a, &c, &b);
     assert(??a.toUInt() == 20);
 
-    add(&a, &c, &c);
+    %%add(&a, &c, &c);
     assert(??a.toUInt() == 26);
 
-    add(&a, &a, &a);
+    %%add(&a, &a, &a);
     assert(??a.toUInt() == 52);
 }
 
 test "test_add_negative" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
-    a.set(u32, 5);
+    %%a.set(u32, 5);
 
-    var b = Bn.init();
+    var b = %%Bn.init();
     defer b.deinit();
-    b.set(i32, -7);
+    %%b.set(i32, -7);
 
-    var c = Bn.init();
+    var c = %%Bn.init();
     defer c.deinit();
-    c.set(u32, 13);
+    %%c.set(u32, 13);
 
-    add(&a, &b, &c);
+    %%add(&a, &b, &c);
     assert(??a.toUInt() == 6);
 
-    add(&a, &c, &b);
+    %%add(&a, &c, &b);
     assert(??a.toUInt() == 6);
 
-    b.set(i32, -14);
-    c.set(i32, 13);
-    add(&a, &b, &c);
+    %%b.set(i32, -14);
+    %%c.set(i32, 13);
+    %%add(&a, &b, &c);
     //%%std.io.stdout.printf("{}\n", ??a.toInt());
     //assert(??a.toInt() == -1);
 
-    add(&a, &c, &b);
+    %%add(&a, &c, &b);
     //assert(??a.toInt() == -1);
 
-    b.set(i32, -3);
-    c.set(i32, -5);
+    %%b.set(i32, -3);
+    %%c.set(i32, -5);
     //assert(??a.toInt() == -8);
 }
 
@@ -586,38 +587,38 @@ test "test_add_reallocate" {
 }
 
 test "test_mul_default" {
-    var a = Bn.init();
+    var a = %%Bn.init();
     defer a.deinit();
 
-    var b = Bn.init();
+    var b = %%Bn.init();
     defer b.deinit();
 
-    var c = Bn.init();
+    var c = %%Bn.init();
     defer c.deinit();
 
-    b.set(u8, 7);
-    c.set(u8, 3);
-    mul(&a, &b, &c);
+    %%b.set(u8, 7);
+    %%c.set(u8, 3);
+    %%mul(&a, &b, &c);
     assert(??a.toUInt() == 21);
 
-    b.set(u8, 90);
-    c.set(u8, 78);
-    mul(&a, &b, &c);
+    %%b.set(u8, 90);
+    %%c.set(u8, 78);
+    %%mul(&a, &b, &c);
     assert(??a.toUInt() == 7020);
 
-    b.set(i8, -90);
-    c.set(u8, 78);
-    mul(&a, &b, &c);
+    %%b.set(i8, -90);
+    %%c.set(u8, 78);
+    %%mul(&a, &b, &c);
     assert(??a.toInt() == -7020);
 
-    b.set(u8, 90);
-    c.set(i8, -78);
-    mul(&a, &b, &c);
+    %%b.set(u8, 90);
+    %%c.set(i8, -78);
+    %%mul(&a, &b, &c);
     assert(??a.toInt() == -7020);
 
-    b.set(i8, -90);
-    c.set(i8, -78);
-    mul(&a, &b, &c);
+    %%b.set(i8, -90);
+    %%c.set(i8, -78);
+    %%mul(&a, &b, &c);
     assert(??a.toUInt() == 7020);
 }
 
