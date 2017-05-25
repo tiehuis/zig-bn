@@ -129,7 +129,7 @@ pub const Bn = struct {
     // Returns the number of bits required to represent the bignum.
     //
     // Negative values return the same count as their positive counterparts.
-    pub fn bitlen(self: &Self) -> usize {
+    pub fn bitLen(self: &Self) -> usize {
         assert(self.limbs.len > 0);
         const base_bits = 8 * @sizeOf(Limb) * (self.limbs.len - 1);
         base_bits + (8 * @sizeOf(Limb) - @clz(self.limbs.items[self.limbs.len - 1]))
@@ -171,7 +171,7 @@ pub const Bn = struct {
     // Digits are used first, then upper-case letters and finally lower-case letters.
     //
     // If an error occurs no guarantees are made about the resulting state of the Bn.
-    pub fn set_str(self: &Self, base: u8, value: []const u8) -> %void {
+    pub fn setStr(self: &Self, base: u8, value: []const u8) -> %void {
         if (value.len == 0) {
             return error.InputTooShort;
         }
@@ -200,7 +200,7 @@ pub const Bn = struct {
         // TODO: How to reverse iterate.
         for (tail) |_, i| {
             const d = %return convertBaseChar(value[value.len - i - 1], base);
-            self.limbs.items[limb_index] = _muladd_limb_wc(self.limbs.items[limb_index], d, mult, &carry);
+            self.limbs.items[limb_index] = _muladdLimbWc(self.limbs.items[limb_index], d, mult, &carry);
 
             if (carry != 0) {
                 limb_index += 1;
@@ -269,7 +269,7 @@ pub fn cmp(a: &Bn, b: &Bn) -> Cmp {
 // a + b + carry
 //
 // Carry is set to resulting overflow value.
-fn _add_limb_wc(a: Limb, b: Limb, carry: &Limb) -> Limb {
+fn _addLimbWc(a: Limb, b: Limb, carry: &Limb) -> Limb {
     const result = DoubleLimb(a) + DoubleLimb(b) + DoubleLimb(*carry);
     *carry = @truncate(Limb, result >> 8 * @sizeOf(Limb));
     @truncate(Limb, result)
@@ -278,7 +278,7 @@ fn _add_limb_wc(a: Limb, b: Limb, carry: &Limb) -> Limb {
 // a + b * c + carry
 //
 // Carry is set to resulting overflow value.
-fn _muladd_limb_wc(a: Limb, b: Limb, c: Limb, carry: &Limb) -> Limb {
+fn _muladdLimbWc(a: Limb, b: Limb, c: Limb, carry: &Limb) -> Limb {
     const result = DoubleLimb(a) + DoubleLimb(b) * DoubleLimb(c) + DoubleLimb(*carry);
     *carry = @truncate(Limb, result >> 8 * @sizeOf(Limb));
     @truncate(Limb, result)
@@ -287,7 +287,7 @@ fn _muladd_limb_wc(a: Limb, b: Limb, c: Limb, carry: &Limb) -> Limb {
 // a - b + borrow
 //
 // Carry is set to resulting underflow value.
-fn _sub_limb_wb(a: Limb, b: Limb, borrow: &Limb) -> Limb {
+fn _subLimbWb(a: Limb, b: Limb, borrow: &Limb) -> Limb {
     const base = DoubleLimb(1) << 8 * @sizeOf(Limb);
     const result = base + DoubleLimb(a) - DoubleLimb(b) - DoubleLimb(*borrow);
     const hi = @truncate(Limb, result >> 8 * @sizeOf(Limb));
@@ -301,7 +301,7 @@ fn _add3(dst: []Limb, a: []Limb, b: []Limb) {
 
     var carry: Limb = 0;
     for (a) |_, i| {
-        dst[i] = _add_limb_wc(a[i], b[i], &carry);
+        dst[i] = _addLimbWc(a[i], b[i], &carry);
     }
 
     if (carry != 0) {
@@ -342,7 +342,7 @@ fn _sub3(dst: []Limb, a: []Limb, b: []Limb) {
 
     var borrow: Limb = 0;
     for (b) |_, i| {
-        dst[i] = _sub_limb_wb(a[i], b[i], &borrow);
+        dst[i] = _subLimbWb(a[i], b[i], &borrow);
     }
 }
 
@@ -369,7 +369,7 @@ pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
 //
 // Perform a carrying multiplication spread into a limb slice. This can be thought of as a single
 // pass over a multiplicative cross-product.
-fn _muladd3_line(dst: []Limb, a: []Limb, b: Limb) {
+fn muladd3Line(dst: []Limb, a: []Limb, b: Limb) {
     assert(dst.len >= a.len + 1);
     if (b == 0) {
         return;
@@ -377,11 +377,11 @@ fn _muladd3_line(dst: []Limb, a: []Limb, b: Limb) {
 
     var carry: Limb = 0;
     for (a) |_, i| {
-        dst[i] += _muladd_limb_wc(dst[i], a[i], b, &carry);
+        dst[i] += _muladdLimbWc(dst[i], a[i], b, &carry);
     }
 
     if (carry != 0) {
-        dst[a.len] = _muladd_limb_wc(dst[a.len], 0, b, &carry);
+        dst[a.len] = _muladdLimbWc(dst[a.len], 0, b, &carry);
     }
 }
 
@@ -394,7 +394,7 @@ pub fn _muladd3(dst: []Limb, a: []Limb, b: []Limb) {
     // Prefer broadcasting over the longer limb input instead of the short to use the longest
     // cache-lines and minimize function calls.
     for (b) |_, i| {
-        _muladd3_line(dst[i..], a, b[i]);
+        muladd3Line(dst[i..], a, b[i]);
     }
 }
 
@@ -466,24 +466,24 @@ test "test_to_int" {
     assert(??a.toInt() == -5);
 }
 
-test "test_bitlen" {
+test "test_bitLen" {
     var a = %%Bn.init();
     defer a.deinit();
 
     %%a.set(u8, 0);
-    assert(a.bitlen() == 0);
+    assert(a.bitLen() == 0);
 
     %%a.set(u8, 1);
-    assert(a.bitlen() == 1);
+    assert(a.bitLen() == 1);
 
     %%a.set(u8, 0xFF);
-    assert(a.bitlen() == 8);
+    assert(a.bitLen() == 8);
 
     %%a.set(Limb, @maxValue(Limb));
-    assert(a.bitlen() == 8 * @sizeOf(Limb));
+    assert(a.bitLen() == 8 * @sizeOf(Limb));
 
-    %%a.set_str(16, "1FFFFFFFF");
-    assert(a.bitlen() == 33);
+    %%a.setStr(16, "1FFFFFFFF");
+    assert(a.bitLen() == 33);
 }
 
 test "test_abs" {
@@ -558,13 +558,13 @@ test "test_popcount" {
     %%a.set(u16, 0x1FF);
     assert(a.popcount() == 9);
 
-    %%a.set_str(16, "FFFFFFFF");
+    %%a.setStr(16, "FFFFFFFF");
     assert(a.popcount() == 32);
 
-    %%a.set_str(16, "2FFFFFFFF");
+    %%a.setStr(16, "2FFFFFFFF");
     assert(a.popcount() == 33);
 
-    %%a.set_str(16, "3FFFFFFFF");
+    %%a.setStr(16, "3FFFFFFFF");
     assert(a.popcount() == 34);
 }
 
@@ -572,33 +572,33 @@ test "test_from_str" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set_str(10, "1");
+    %%a.setStr(10, "1");
     assert(??a.toInt() == 1);
 
-    %%a.set_str(10, "1238");
+    %%a.setStr(10, "1238");
     assert(??a.toInt() == 1238);
 
-    %%a.set_str(10, "1230912412");
+    %%a.setStr(10, "1230912412");
     assert(??a.toInt() == 1230912412);
 
-    %%a.set_str(16, "FFFFFFFF");
+    %%a.setStr(16, "FFFFFFFF");
     assert(??a.toUInt() == @maxValue(u32));
 
     // TODO: Remove test assumption that on size of limb.
-    %%a.set_str(16, "FFFFFFFFFF");
+    %%a.setStr(16, "FFFFFFFFFF");
     assert(a.limbs.items[0] == @maxValue(Limb));
     assert(a.limbs.items[1] == 0xFF);
 
-    %%a.set_str(16, "FFEEFFEFAABBAABACCDDCCDC");
+    %%a.setStr(16, "FFEEFFEFAABBAABACCDDCCDC");
     assert(a.limbs.items[0] == 0xCCDDCCDC);
     assert(a.limbs.items[1] == 0xAABBAABA);
     assert(a.limbs.items[2] == 0xFFEEFFEF);
 
-    %%a.set_str(10, "-10");
+    %%a.setStr(10, "-10");
     assert(??a.toInt() == -10);
 
     // TODO: Requires compiler support for equality against errors
-    //var r = %%a.set_str("A123");
+    //var r = %%a.setStr("A123");
     //assert(r == error.ParseError);
 }
 
@@ -626,7 +626,7 @@ test "test_add_limb_wac" {
     var a: Limb = 3;
     var b: Limb = @maxValue(Limb);
     var c: Limb = 7;
-    var d = _add_limb_wc(a, b, &c);
+    var d = _addLimbWc(a, b, &c);
 
     assert(c == 1);
     assert(d == 9);
@@ -636,14 +636,14 @@ test "test_mul_limb_wc" {
     var a: Limb = 3;
     var b: Limb = @maxValue(Limb);
     var c: Limb = 7;
-    var d = _add_limb_wc(a, b, &c);
+    var d = _addLimbWc(a, b, &c);
 }
 
-test "test_sub_limb_wb" {
+test "test_subLimbWb" {
     var a: Limb = 5;
     var b: Limb = 4;
     var c: Limb = 3;
-    var d = _sub_limb_wb(a, b, &c);
+    var d = _subLimbWb(a, b, &c);
 
     assert(c == 1);
     assert(d == @maxValue(Limb) - 1);
