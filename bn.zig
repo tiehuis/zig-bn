@@ -4,7 +4,7 @@ const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
 const printf = std.io.stdout.printf;
 
-// Temporary for testing.
+const ll = @import("ll.zig");
 const Bn = BnWithAllocator(&std.debug.global_allocator);
 
 // TODO: Use addWithOverflow and friends instead so we can use wider (64-bit) base types.
@@ -17,6 +17,31 @@ error InvalidBase;
 error ParseError;
 error InputTooShort;
 
+/// Instantiate a new Bn factory with an underlying allocator.
+///
+/// The reason this is a factory-like function is to avoid the following:
+///
+/// ```
+/// const Bn = @import("bn.zig").Bn;
+///
+/// var a = %%Bn.init(&global_allocator);
+/// var b = %%Bn.init(&global_allocator);
+/// var c = %%Bn.init(&global_allocator);
+/// var d = %%Bn.init(&global_allocator);
+/// ```
+///
+/// Since the number of allocators in use tends to be small, we can instead use it in the following
+/// way.
+///
+/// ```
+/// const bn = const @import("bn.zig");
+/// const Bn = bn.BnWithAllocator(&global_allocator);
+///
+/// var a = %%Bn.init();
+/// var b = %%Bn.init();
+/// var c = %%Bn.init();
+/// var d = %%Bn.init();
+/// ```
 pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct {
     const Self = this;
 
@@ -24,6 +49,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     positive: bool,
     allocator: &std.mem.Allocator,
 
+    /// Initialize a new Bn object.
+    ///
+    /// Every Bn object is zero-initialized by default and must allocate at least 1 limb of memory,
+    /// hence this may fail.
     pub fn init() -> %Self {
         var limbs = Limbs.init(allocator);
         %return limbs.append(0);
@@ -35,10 +64,14 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    /// Release the storage associated with this Bn object.
     pub fn deinit(self: &Self) {
         self.limbs.deinit();
     }
 
+    /// Try convert a Bn object to a smaller-width primitive type.
+    ///
+    /// Returns null if the Bn object cannot be converted to the specified type without loss.
     pub fn to(self: &Self, comptime T: type) -> ?T {
         if (@typeId(T) == TypeId.Int) {
             if (T.is_signed) {
@@ -68,6 +101,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         %%printf("\n");
     }
 
+    /// Clone a Bn object, creating a new instance initialized to the same value.
     pub fn clone(self: &Self) -> %Self {
         var limbs = Limbs.init(self.allocator);
         %return limbs.resize(self.limbs.len);
@@ -83,6 +117,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    /// Copy the value of a Bn object to another.
     pub fn copy(self: &Self, other: &Self) -> %void {
         %return self.limbs.resize(other.limbs.len);
         for (other.limbs.toSliceConst()) |d, i| {
@@ -91,6 +126,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         self.positive = other.positive;
     }
 
+    /// Set the value of a Bn object based on some primitive type.
     pub fn set(self: &Self, comptime T: type, value: T) -> %void {
         comptime assert(@typeId(T) == builtin.TypeId.Int);
         // TODO: Allow halving a multiple-sized types into sequence of limbs.
@@ -107,7 +143,9 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
-    // Set a Bn to zero.
+    /// Set the value of a Bn object to zero.
+    ///
+    /// This does not reclaim any previously used memory.
     pub fn zero(self: &Self) {
         self.limbs.resizeDown(1);
         self.limbs.items[0] = 0;
@@ -170,31 +208,41 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
-    // Returns the number of bits required to represent the bignum.
-    //
-    // Negative values return the same count as their positive counterparts.
+    /// Return the number of bits required to represent the Bn object.
+    ///
+    /// Negative values return the same count as their positive counterparts and do not attach an
+    /// extra bit for the leading sign bit.
     pub fn bitLen(self: &Self) -> usize {
         assert(self.limbs.len > 0);
         const base_bits = 8 * @sizeOf(Limb) * (self.limbs.len - 1);
         base_bits + (8 * @sizeOf(Limb) - @clz(self.limbs.items[self.limbs.len - 1]))
     }
 
+    /// Set the Bn its absolute value.
     pub fn abs(self: &Self) {
         self.positive = true;
     }
 
+    /// Set the Bn to its negation.
     pub fn neg(self: &Self) {
         self.positive = !self.positive;
     }
 
+    /// Return true if the Bn is equal to zero.
     pub fn isZero(self: &Self) -> bool {
         self.limbs.len == 1 and self.limbs.items[0] == 0
     }
 
+    /// Return true if the Bn is equal to one.
     pub fn isOne(self: &Self) -> bool {
         self.limbs.len == 1 and self.limbs.items[0] == 1
     }
 
+    /// Return the sign of the Bn.
+    ///
+    /// -1 => negative
+    ///  0 => zero
+    /// +1 => positive
     pub fn sign(self: &Self) -> isize {
         if (self.isZero()) {
             return 0;   // These return statements are required to avoid a compile error!
@@ -205,6 +253,17 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    // Is there a builtin for this?
+    fn popcnt(v: Limb) -> usize {
+        var n: Limb = v;
+        var sum: usize = 0;
+        while (n != 0) : (n >>= 1) {
+            sum += n & 1;
+        }
+        sum
+    }
+
+    /// Return the number of bits that are set in the Bn.
     pub fn popcount(self: &Self) -> usize {
         var pop: usize = 0;
         for (self.limbs.toSliceConst()) |b| {
@@ -213,12 +272,12 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         pop
     }
 
-    // Set the big number to the value specified by the string.
-    //
-    // The input radix accepts values from the range [2, 62].
-    // Digits are used first, then upper-case letters and finally lower-case letters.
-    //
-    // If an error occurs no guarantees are made about the resulting state of the Bn.
+    /// Set the big number to the value specified by the string.
+    ///
+    /// The input radix accepts values from the range [2, 62].
+    /// Digits are used first, then upper-case letters and finally lower-case letters.
+    ///
+    /// If an error occurs no guarantees are made about the resulting state of the Bn.
     pub fn setStr(self: &Self, base: u8, value: []const u8) -> %void {
         if (value.len == 0) {
             return error.InputTooShort;
@@ -246,7 +305,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             return error.InputTooShort;
         }
 
-        const approxLength = ((cilog2(base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
+        const approxLength = ((std.math.log(2, base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
         %return self.zeroExtend(approxLength);
         self.zero();
 
@@ -268,10 +327,9 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         self.reduce();
     }
 
-    // Converts the big number to a string representation in the given radix.
-    //
-    // The string is allocated using the internal allocator.
-    //
+    /// Converts the big number to a string representation in the given radix.
+    ///
+    /// The string is allocated using the internal allocator.
     // TODO: Redo once corrected div behaviour.
     pub fn toStr(self: &Self, base: u8) -> %std.ArrayList(u8) {
         if (base < 2 or base > 62) {
@@ -328,276 +386,148 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
         return str;
     }
-}}
 
-fn popcnt(v: Limb) -> usize {
-    var n: Limb = v;
-    var sum: usize = 0;
-    while (n != 0) : (n >>= 1) {
-        sum += n & 1;
-    }
-    sum
-}
+    /// Return the comparision between two Bn values.
+    ///
+    /// -1 => a > b
+    ///  0 => a == b
+    /// +1 => a < b
+    pub fn cmp(a: &Bn, b: &Bn) -> Cmp {
+        if (a.positive and !b.positive) {
+            return Cmp.Greater;
+        } else if (b.positive and !a.positive) {
+            return Cmp.Less;
+        }
 
-fn cilog2(v: u64) -> u64 {
-    var r: u64 = 0;
-    var n: u64 = v; // Note: Input arguments are const by default.
-    while (n != 0) : (n >>= 1) {
-        r += 1;
-    }
-    r
-}
-
-pub fn cmp(a: &Bn, b: &Bn) -> Cmp {
-    if (a.positive and !b.positive) {
-        return Cmp.Greater;
-    } else if (b.positive and !a.positive) {
-        return Cmp.Less;
-    }
-
-    var result = if (a.limbs.len < b.limbs.len) {
-        Cmp.Less
-    } else if (a.limbs.len > b.limbs.len) {
-        Cmp.Greater
-    } else {
-        std.mem.cmp(Limb, a.limbs.toSliceConst(), b.limbs.toSliceConst())
-    };
-
-    if (a.positive and b.positive) {
-        result
-    } else {
-        if (result == Cmp.Greater) {
+        var result = if (a.limbs.len < b.limbs.len) {
             Cmp.Less
-        } else if (result == Cmp.Less) {
+        } else if (a.limbs.len > b.limbs.len) {
             Cmp.Greater
         } else {
-            Cmp.Equal
-        }
-    }
-}
+            std.mem.cmp(Limb, a.limbs.toSliceConst(), b.limbs.toSliceConst())
+        };
 
-// a + b + carry
-//
-// Carry is set to resulting overflow value.
-fn _addLimbWc(a: Limb, b: Limb, carry: &Limb) -> Limb {
-    const result = DoubleLimb(a) + DoubleLimb(b) + DoubleLimb(*carry);
-    *carry = @truncate(Limb, result >> 8 * @sizeOf(Limb));
-    @truncate(Limb, result)
-}
-
-// a + b * c + carry
-//
-// Carry is set to resulting overflow value.
-fn _muladdLimbWc(a: Limb, b: Limb, c: Limb, carry: &Limb) -> Limb {
-    const result = DoubleLimb(a) + DoubleLimb(b) * DoubleLimb(c) + DoubleLimb(*carry);
-    *carry = @truncate(Limb, result >> 8 * @sizeOf(Limb));
-    @truncate(Limb, result)
-}
-
-// a - b + borrow
-//
-// Carry is set to resulting underflow value.
-fn _subLimbWb(a: Limb, b: Limb, borrow: &Limb) -> Limb {
-    const base = DoubleLimb(1) << 8 * @sizeOf(Limb);
-    const result = base + DoubleLimb(a) - DoubleLimb(b) - DoubleLimb(*borrow);
-    const hi = @truncate(Limb, result >> 8 * @sizeOf(Limb));
-    *borrow = Limb(hi == 0);
-    @truncate(Limb, result)
-}
-
-// Divide a double sized Limb by a single Limb divisor.
-//
-// The quotient and remainder are stored in specified out variables.
-// TODO: Tuples would be nice to have for something like this.
-fn _div2LimbByLimb(q: &Limb, r: &Limb, hi: Limb, lo: Limb, d: Limb) {
-    assert(hi < d);
-
-    const lhs = (DoubleLimb(hi) << 8 * @sizeOf(Limb)) | (DoubleLimb(lo));
-    const rhs = DoubleLimb(d);
-    *q = Limb(lhs / rhs);
-    *r = Limb(lhs % rhs);
-}
-
-// a / b where b is a single limb.
-fn _divRemSingle(q: []Limb, r: &Limb, a: []const Limb, b: Limb) {
-    assert(q.len >= a.len);
-    *r = 0;
-
-    for (a) |_, i| {
-        const index = a.len - i - 1;
-
-        // This does not handle the special case where a < b
-        _div2LimbByLimb(&q[index], r, *r, a[index], b);
-    }
-}
-
-// TODO: Only handles single limb division right now!
-pub fn div(q: &Bn, r: &Bn, a: &Bn, b: &Bn) -> %void {
-    assert(!b.isZero());
-
-    if (a.isZero()) {
-        %%q.set(u8, 0);
-        %%r.set(u8, 0);
-        return;
-    }
-    if (b.isOne()) {
-        %%q.copy(a);
-        %%r.set(u8, 0);
-    }
-
-    // Note: lots of possible aliasing here so double-check. May need copies.
-    %return q.zeroExtend(a.limbs.len);
-    r.zero();   // Reduce to single limb
-
-    _divRemSingle(q.limbs.items, &r.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
-    q.reduce();
-}
-
-fn _add3(dst: []Limb, a: []const Limb, b: []const Limb) {
-    assert(a.len >= b.len);
-    assert(dst.len >= a.len + 1);
-
-    var carry: Limb = 0;
-    for (b) |_, i| {
-        dst[i] = _addLimbWc(a[i], b[i], &carry);
-    }
-
-    // Propagate carry across remaining a limbs
-    for (a[b.len..]) |d, i| {
-        dst[i] = _addLimbWc(a[i], 0, &carry);
-        if (carry == 0) {
-            break;
-        }
-    }
-    if (carry != 0) {
-        dst[a.len] = carry;
-        carry = 0;
-    }
-
-    assert(carry == 0);
-}
-
-// dst = a + b
-pub fn add(dst: &Bn, a: &Bn, b: &Bn) -> %void {
-    if (a.positive != b.positive) {
-        // (a) + (-b) => a - b
-        if (a.positive) {
-            b.abs();
-            %return sub(dst, a, b);
-            b.neg();
-        }
-        // (-a) + (b) => b - a
-        else {
-            a.abs();
-            %return sub(dst, b, a);
-            a.neg();
-        }
-    } else {
-        if (a.limbs.len >= b.limbs.len) {
-            // if dst aliases a then we cannot use the slice itself, nor can we do an actual resize.
-            %return dst.zeroExtend(a.limbs.len + 1);
-            _add3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            dst.reduce();
+        if (a.positive and b.positive) {
+            result
         } else {
-            %return dst.zeroExtend(b.limbs.len + 1);
-            _add3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
-            dst.reduce();
+            if (result == Cmp.Greater) {
+                Cmp.Less
+            } else if (result == Cmp.Less) {
+                Cmp.Greater
+            } else {
+                Cmp.Equal
+            }
+        }
+    }
+
+    /// Compute the quotient (q) and remainder (r) of a / b.
+    ///
+    /// q = a / b + r
+    // TODO: Only handles single limb division right now!
+    pub fn div(q: &Bn, r: &Bn, a: &Bn, b: &Bn) -> %void {
+        assert(!b.isZero());
+
+        if (a.isZero()) {
+            %%q.set(u8, 0);
+            %%r.set(u8, 0);
+            return;
+        }
+        if (b.isOne()) {
+            %%q.copy(a);
+            %%r.set(u8, 0);
         }
 
-        dst.positive = a.positive;
+        // Note: lots of possible aliasing here so double-check. May need copies.
+        %return q.zeroExtend(a.limbs.len);
+        r.zero();   // Reduce to single limb
+
+        ll.divRemSingle(q.limbs.items, &r.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
+        q.reduce();
     }
-}
 
-fn _sub3(dst: []Limb, a: []Limb, b: []Limb) {
-    assert(a.len >= b.len);
-    assert(dst.len >= b.len);
+    /// Compute the value of a + b.
+    ///
+    /// dst = a + b
+    pub fn add(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+        if (a.positive != b.positive) {
+            // (a) + (-b) => a - b
+            if (a.positive) {
+                b.abs();
+                %return sub(dst, a, b);
+                b.neg();
+            }
+            // (-a) + (b) => b - a
+            else {
+                a.abs();
+                %return sub(dst, b, a);
+                a.neg();
+            }
+        } else {
+            if (a.limbs.len >= b.limbs.len) {
+                // if dst aliases a then we cannot use the slice itself, nor can we do an actual resize.
+                %return dst.zeroExtend(a.limbs.len + 1);
+                ll.add3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+                dst.reduce();
+            } else {
+                %return dst.zeroExtend(b.limbs.len + 1);
+                ll.add3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+                dst.reduce();
+            }
 
-    var borrow: Limb = 0;
-    for (b) |_, i| {
-        dst[i] = _subLimbWb(a[i], b[i], &borrow);
+            dst.positive = a.positive;
+        }
     }
-}
 
-// dst = a - b
-pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
-    const cr = cmp(a, b);
-    if (cr == Cmp.Greater) {
-        %return dst.zeroExtend(b.limbs.len);
-        _sub3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
+    /// Compute the value of a - b.
+    ///
+    /// dst = a - b
+    pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+        const cr = a.cmp(b);
+        if (cr == Cmp.Greater) {
+            %return dst.zeroExtend(b.limbs.len);
+            ll.sub3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
+            dst.reduce();
+            dst.positive = true;
+        } else if (cr == Cmp.Less) {
+            %return dst.zeroExtend(a.limbs.len);
+            ll.sub3(dst.limbs.items, b.limbs.toSlice(), a.limbs.toSlice());
+            dst.reduce();
+            dst.positive = false;
+        } else {
+            // Limb size will never be smaller than u8.
+            %%dst.set(u8, 0);
+        }
+    }
+
+    /// Compute the value of a * b.
+    ///
+    /// dst = a * b
+    pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+        const a_sign = a.positive;
+        const b_sign = b.positive;
+        const signn = a_sign == b_sign;
+        a.positive = true;
+        b.positive = true;
+
+        // TODO: Don't copy if non-alias.
+        var temp = Limbs.init(&std.debug.global_allocator);
+        defer temp.deinit();
+        %return temp.resize(a.limbs.len + b.limbs.len + 1);
+
+        if (a.limbs.len >= b.limbs.len) {
+            ll.muladd3(temp.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+        } else {
+            ll.muladd3(temp.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+        }
+
+        for (temp.items) |item, i| { dst.limbs.items[i] = item }
         dst.reduce();
-        dst.positive = true;
-    } else if (cr == Cmp.Less) {
-        %return dst.zeroExtend(a.limbs.len);
-        _sub3(dst.limbs.items, b.limbs.toSlice(), a.limbs.toSlice());
-        dst.reduce();
-        dst.positive = false;
-    } else {
-        // Limb size will never be smaller than u8.
-        %%dst.set(u8, 0);
+
+        a.positive = a_sign;
+        b.positive = b_sign;
+        dst.positive = signn;
     }
-}
-
-// dst += a * b
-//
-// Perform a carrying multiplication spread into a limb slice. This can be thought of as a single
-// pass over a multiplicative cross-product.
-fn muladd3Line(dst: []Limb, a: []const Limb, b: Limb) {
-    assert(dst.len >= a.len + 1);
-    if (b == 0) {
-        return;
-    }
-
-    var carry: Limb = 0;
-    for (a) |_, i| {
-        dst[i] += _muladdLimbWc(dst[i], a[i], b, &carry);
-    }
-
-    if (carry != 0) {
-        dst[a.len] = _muladdLimbWc(dst[a.len], 0, b, &carry);
-    }
-}
-
-// dst must not alias either a or b.
-// a and b can alias one another.
-pub fn _muladd3(dst: []Limb, a: []const Limb, b: []const Limb) {
-    assert(dst.len >= a.len + b.len + 1);
-    assert(a.len >= b.len);
-
-    // Basecase multiplication always.
-    //
-    // Prefer broadcasting over the longer limb input instead of the short to use the longest
-    // cache-lines and minimize function calls.
-    for (b) |_, i| {
-        muladd3Line(dst[i..], a, b[i]);
-    }
-}
-
-// dst = a * b
-pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void {
-    const a_sign = a.positive;
-    const b_sign = b.positive;
-    const sign = a_sign == b_sign;
-    a.positive = true;
-    b.positive = true;
-
-    // TODO: Don't copy if non-alias.
-    var temp = Limbs.init(&std.debug.global_allocator);
-    defer temp.deinit();
-    %return temp.resize(a.limbs.len + b.limbs.len + 1);
-
-    if (a.limbs.len >= b.limbs.len) {
-        _muladd3(temp.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
-    } else {
-        _muladd3(temp.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
-    }
-
-    for (temp.items) |item, i| { dst.limbs.items[i] = item }
-    dst.reduce();
-
-    a.positive = a_sign;
-    b.positive = b_sign;
-    dst.positive = sign;
-}
+}}
 
 test "test_defaultZero" {
     var a = %%Bn.init();
@@ -843,35 +773,15 @@ test "cmp" {
 
     %%a.set(u8, 0);
     %%b.set(u8, 1);
-    assert(cmp(&a, &b) == Cmp.Less);
+    assert(Bn.cmp(&a, &b) == Cmp.Less);
 
     %%a.set(u8, 1);
     %%b.set(u8, 0);
-    assert(cmp(&a, &b) == Cmp.Greater);
+    assert(Bn.cmp(&a, &b) == Cmp.Greater);
 
     %%a.set(u8, 1);
     %%b.set(u8, 1);
-    assert(cmp(&a, &b) == Cmp.Equal);
-}
-
-test "_addLimbWc" {
-    var a: Limb = 3;
-    var b: Limb = @maxValue(Limb);
-    var c: Limb = 7;
-    var d = _addLimbWc(a, b, &c);
-
-    assert(c == 1);
-    assert(d == 9);
-}
-
-test "_subLimbWb" {
-    var a: Limb = 5;
-    var b: Limb = 4;
-    var c: Limb = 3;
-    var d = _subLimbWb(a, b, &c);
-
-    assert(c == 1);
-    assert(d == @maxValue(Limb) - 1);
+    assert(Bn.cmp(&a, &b) == Cmp.Equal);
 }
 
 test "subSimple" {
@@ -887,10 +797,10 @@ test "subSimple" {
     defer c.deinit();
     %%c.set(u32, 8);
 
-    %%sub(&a, &c, &b);
+    %%Bn.sub(&a, &c, &b);
     assert(??a.to(i64) == 3);
 
-    %%sub(&a, &b, &c);
+    %%Bn.sub(&a, &b, &c);
     assert(??a.to(i64) == -3);
 }
 
@@ -907,19 +817,19 @@ test "addSingle" {
     defer c.deinit();
     %%c.set(u32, 13);
 
-    %%add(&a, &b, &c);
+    %%Bn.add(&a, &b, &c);
     assert(??a.to(u64) == 20);
 
-    %%add(&a, &c, &b);
+    %%Bn.add(&a, &c, &b);
     assert(??a.to(u64) == 20);
 
-    %%add(&a, &c, &c);
+    %%Bn.add(&a, &c, &c);
     assert(??a.to(u64) == 26);
 
-    %%add(&a, &a, &a);
+    %%Bn.add(&a, &a, &a);
     assert(??a.to(u64) == 52);
 
-    %%add(&a, &a, &b);
+    %%Bn.add(&a, &a, &b);
     assert(??a.to(u64) == 59);
 }
 
@@ -936,24 +846,24 @@ test "addSingleNegative" {
     defer c.deinit();
     %%c.set(u32, 13);
 
-    %%add(&a, &b, &c);
+    %%Bn.add(&a, &b, &c);
     assert(??a.to(u64) == 6);
 
-    %%add(&a, &c, &b);
+    %%Bn.add(&a, &c, &b);
     assert(??a.to(u64) == 6);
 
     %%b.set(i32, 14);
     %%c.set(i32, -14);
-    %%add(&a, &b, &c);
-    // TODO: Fix negative addition case.
+    %%Bn.add(&a, &b, &c);
+    // TODO: Fix negative Bn.addition case.
     //assert(??a.to(i64) == 0);
 
     %%b.set(i32, -14);
     %%c.set(i32, 13);
-    %%add(&a, &b, &c);
+    %%Bn.add(&a, &b, &c);
     //assert(??a.to(i64) == -1);
 
-    %%add(&a, &c, &b);
+    %%Bn.add(&a, &c, &b);
     //assert(??a.to(i64) == -1);
 
     %%b.set(i32, -3);
@@ -973,7 +883,7 @@ test "addMulti" {
     var c = %%Bn.init();
     defer c.deinit();
 
-    %%add(&c, &a, &b);
+    %%Bn.add(&c, &a, &b);
     // TODO: Implement toStr before assertions
 }
 
@@ -989,51 +899,51 @@ test "mulSingle" {
 
     %%a.set(i8, 5);
     %%b.set(i8, 5);
-    %%mul(&a, &a, &b);
+    %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 25);
 
     %%b.set(u8, 7);
     %%c.set(u8, 3);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 21);
 
     %%b.set(u8, 90);
     %%c.set(u8, 78);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 7020);
 
     %%b.set(i8, -90);
     %%c.set(u8, 78);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(i64) == -7020);
 
     %%b.set(u8, 90);
     %%c.set(i8, -78);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(i64) == -7020);
 
     %%b.set(i8, -90);
     %%c.set(i8, -78);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 7020);
 
     // Aliasing
     %%b.set(i8, 5);
     %%c.set(i8, 4);
-    %%mul(&a, &b, &c);
+    %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 20);
 
     %%b.set(i8, 5);
-    %%mul(&a, &b, &b);
+    %%Bn.mul(&a, &b, &b);
     assert(??a.to(u64) == 25);
 
     %%a.set(i8, 4);
     %%b.set(i8, 5);
-    %%mul(&a, &a, &b);
+    %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 20);
 
     %%a.set(i8, 4);
-    %%mul(&a, &a, &a);
+    %%Bn.mul(&a, &a, &a);
     assert(??a.to(u64) == 16);
 }
 
@@ -1045,7 +955,7 @@ test "mulAlias" {
 
     %%a.set(i8, 5);
     %%b.set(i8, 5);
-    %%mul(&a, &a, &b);
+    %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 25);
 }
 
@@ -1061,41 +971,8 @@ test "mulMulti" {
     var c = %%Bn.init();
     defer c.deinit();
 
-    %%mul(&c, &a, &b);
+    %%Bn.mul(&c, &a, &b);
     // TODO: Implement toStr before assertions
-}
-
-test "_divRemSingle" {
-    var q: [2]Limb = undefined;
-    var r: Limb = undefined;
-
-    var a: [2]Limb = undefined;
-    var b: Limb = undefined;
-
-    a[1] = 0;
-    a[0] = 4;
-    b = 2;
-    _divRemSingle(q[0..2], &r, a[0..2], b);
-    assert(q[1] == 0);
-    assert(q[0] == 2);
-    assert(r == 0);
-
-    a[1] = 0;
-    a[0] = 987;
-    b = 13;
-    _divRemSingle(q[0..2], &r, a[0..2], b);
-    assert(q[1] == 0);
-    assert(q[0] == 75);
-    assert(r == 12);
-
-    // 240530240918 / 324 = 742377286 r 254
-    a[1] = 56;
-    a[0] = 12072342;
-    b = 324;
-    _divRemSingle(q[0..2], &r, a[0..2], b);
-    assert(q[1] == 0);
-    assert(q[0] == 742377286);
-    assert(r == 254);
 }
 
 test "divRemSingleLimb" {
@@ -1110,20 +987,20 @@ test "divRemSingleLimb" {
 
     %%a.set(u8, 5);
     %%b.set(u8, 2);
-    %%div(&q, &r, &a, &b);
+    %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(i64) == 2);
     assert(??r.to(i64) == 1);
 
     %%a.set(u16, 256);
     %%b.set(u8, 2);
-    %%div(&q, &r, &a, &b);
+    %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(i64) == 128);
     assert(??r.to(i64) == 0);
 
     // 240530240918 / 324 = 742377286 r 254
     %%a.setStr(10, "240530240918");
     %%b.setStr(10, "324");
-    %%div(&q, &r, &a, &b);
+    %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(u64) == 742377286);
     assert(??r.to(u64) == 254);
 }
