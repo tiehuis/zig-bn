@@ -76,10 +76,12 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 
     /// Set the value of a Bn object based on some primitive type.
-    pub fn set(self: &Self, comptime T: type, value: T) -> %void {
-        comptime assert(@typeId(T) == builtin.TypeId.Int);
+    pub fn set(self: &Self, value: var) -> %void {
+        const T = @typeOf(value);
+
+        assert(@typeId(T) == builtin.TypeId.Int);
         // TODO: Allow halving a multiple-sized types into sequence of limbs.
-        comptime assert(@sizeOf(T) <= @sizeOf(Limb));
+        assert(@sizeOf(T) <= @sizeOf(Limb));
 
         %return self.limbs.resize(1);
         if (!T.is_signed) {
@@ -330,13 +332,13 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         defer mult.deinit();
 
         var radix = %return Bn.init();
-        %%radix.set(u8, base);
+        %%radix.set(base);
         defer radix.deinit();
 
         for (tail) |item, i| {
             %return mul(self, self, &radix);
             const d = %return convertFromBaseChar(item, base);
-            %%mult.set(u8, d);
+            %%mult.set(d);
             %return add(self, self, &mult);
         }
 
@@ -367,7 +369,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         defer r.deinit();
         var b = %return Bn.init();
         defer b.deinit();
-        %%b.set(u8, base);
+        %%b.set(base);
 
         var i: usize = 0;
         while (!tmp.isZero() and i < 10) : (i += 1) {
@@ -442,10 +444,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
-        var x = %return parseBnOrInt("subi", a, &owned_x);
+        var x = %return parseBnOrInt("divi", a, &owned_x);
         defer { if (owned_x) x.deinit() };
 
-        var y = %return parseBnOrInt("subi", b, &owned_y);
+        var y = %return parseBnOrInt("divi", b, &owned_y);
         defer { if (owned_y) y.deinit() };
 
         %return div(q, r, &x, &y);
@@ -459,13 +461,13 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         assert(!b.isZero());
 
         if (a.isZero()) {
-            %%q.set(u8, 0);
-            %%r.set(u8, 0);
+            %%q.set(u8(0));
+            %%r.set(u8(0));
             return;
         }
         if (b.isOne()) {
             %%q.copy(a);
-            %%r.set(u8, 0);
+            %%r.set(u8(0));
         }
 
         // Note: lots of possible aliasing here so double-check. May need copies.
@@ -478,7 +480,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
     // Parse a Bn or Integer into a new Bn.
     //
-    // NOTE: This could be improved as it is a Copy on Write situiation. Further, we could use the
+    // NOTE: This could be improved as it is a Copy on Write situation. Further, we could use the
     // stack for these Bn allocations since each Bn will be bounded by the machine word size.
     fn parseBnOrInt(comptime func_name: []const u8, a: var, owned: &bool) -> %Bn {
         const aT = @typeOf(a);
@@ -493,7 +495,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
         var x = %return Bn.init();
         *owned = true;
-        %return x.set(aT, a);
+        %return x.set(a);
         x
     }
 
@@ -577,7 +579,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             dst.positive = false;
         } else {
             // Limb size will never be smaller than u8.
-            %%dst.set(u8, 0);
+            %%dst.set(u8(0));
         }
     }
 
@@ -587,10 +589,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
-        var x = %return parseBnOrInt("subi", a, &owned_x);
+        var x = %return parseBnOrInt("muli", a, &owned_x);
         defer { if (owned_x) x.deinit() };
 
-        var y = %return parseBnOrInt("subi", b, &owned_y);
+        var y = %return parseBnOrInt("muli", b, &owned_y);
         defer { if (owned_y) y.deinit() };
 
         %return mul(dst, &x, &y);
@@ -638,15 +640,15 @@ test "set" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 5);
+    %%a.set(u8(5));
     assert(a.limbs.items[0] == 5);
     assert(a.positive == true);
 
-    %%a.set(u16, @maxValue(u16));
+    %%a.set(u16(@maxValue(u16)));
     assert(a.limbs.items[0] == @maxValue(u16));
     assert(a.positive == true);
 
-    %%a.set(i32, -5);
+    %%a.set(i32(-5));
     assert(a.limbs.items[0] == 5);
     assert(a.positive == false);
 }
@@ -655,13 +657,13 @@ test "clone" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 5);
+    %%a.set(u8(5));
     var b = %%a.clone();
     defer b.deinit();
     assert(a.positive == b.positive);
     assert(??a.to(u8) == ??b.to(u8));
 
-    %%a.set(i8, -5);
+    %%a.set(i8(-5));
     var c = %%a.clone();
     assert(a.positive == c.positive);
     assert(??a.to(i8) == ??c.to(i8));
@@ -674,12 +676,12 @@ test "copy" {
     var b = %%Bn.init();
     defer b.deinit();
 
-    %%a.set(u8, 5);
+    %%a.set(u8(5));
     %%b.copy(&a);
     assert(a.positive == b.positive);
     assert(??a.to(u8) == ??b.to(u8));
 
-    %%a.set(i8, -5);
+    %%a.set(i8(-5));
     %%b.copy(&a);
     assert(a.positive == b.positive);
     assert(??a.to(i8) == ??b.to(i8));
@@ -722,16 +724,16 @@ test "bitLen" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     assert(a.bitLen() == 0);
 
-    %%a.set(u8, 1);
+    %%a.set(u8(1));
     assert(a.bitLen() == 1);
 
-    %%a.set(u8, 0xFF);
+    %%a.set(u8(0xFF));
     assert(a.bitLen() == 8);
 
-    %%a.set(Limb, @maxValue(Limb));
+    %%a.set(Limb(@maxValue(Limb)));
     assert(a.bitLen() == 8 * @sizeOf(Limb));
 
     %%a.setStr(16, "1FFFFFFFF");
@@ -742,15 +744,15 @@ test "abs" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     a.abs();
     assert(??a.to(i64) == 0);
 
-    %%a.set(u8, 1);
+    %%a.set(u8(1));
     a.abs();
     assert(??a.to(i64) == 1);
 
-    %%a.set(i8, -1);
+    %%a.set(i8(-1));
     a.abs();
     assert(??a.to(i64) == 1);
 }
@@ -759,15 +761,15 @@ test "neg" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     a.neg();
     assert(??a.to(i64) == 0);
 
-    %%a.set(u8, 1);
+    %%a.set(u8(1));
     a.neg();
     assert(??a.to(i64) == -1);
 
-    %%a.set(i8, -1);
+    %%a.set(i8(-1));
     a.neg();
     assert(??a.to(i64) == 1);
 }
@@ -776,10 +778,10 @@ test "isZero" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     assert(a.isZero());
 
-    %%a.set(u8, 1);
+    %%a.set(u8(1));
     assert(!a.isZero());
 }
 
@@ -787,13 +789,13 @@ test "sign" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     assert(a.sign() == 0);
 
-    %%a.set(u8, 234);
+    %%a.set(u8(234));
     assert(a.sign() == 1);
 
-    %%a.set(i8, -23);
+    %%a.set(i8(-23));
     assert(a.sign() == -1);
 }
 
@@ -801,13 +803,13 @@ test "popcount" {
     var a = %%Bn.init();
     defer a.deinit();
 
-    %%a.set(u8, 0);
+    %%a.set(u8(0));
     assert(a.popcount() == 0);
 
-    %%a.set(u8, 1);
+    %%a.set(u8(1));
     assert(a.popcount() == 1);
 
-    %%a.set(u16, 0x1FF);
+    %%a.set(u16(0x1FF));
     assert(a.popcount() == 9);
 
     %%a.setStr(16, "FFFFFFFF");
@@ -866,7 +868,7 @@ test "toStr" {
     a.zero();
     assert(std.mem.eql(u8, (%%a.toStr(10)).toSlice(), "0"));
 
-    %%a.set(u8, 60);
+    %%a.set(u8(60));
     assert(std.mem.eql(u8, (%%a.toStr(10)).toSlice(), "60"));
 
     // TODO: Fix multi-limb case + negative handling.
@@ -882,16 +884,16 @@ test "cmp" {
     var b = %%Bn.init();
     defer b.deinit();
 
-    %%a.set(u8, 0);
-    %%b.set(u8, 1);
+    %%a.set(u8(0));
+    %%b.set(u8(1));
     assert(Bn.cmp(&a, &b) == Cmp.Less);
 
-    %%a.set(u8, 1);
-    %%b.set(u8, 0);
+    %%a.set(u8(1));
+    %%b.set(u8(0));
     assert(Bn.cmp(&a, &b) == Cmp.Greater);
 
-    %%a.set(u8, 1);
-    %%b.set(u8, 1);
+    %%a.set(u8(1));
+    %%b.set(u8(1));
     assert(Bn.cmp(&a, &b) == Cmp.Equal);
 }
 
@@ -904,7 +906,7 @@ test "subi" {
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 47);
+    %%b.set(u32(47));
 
     %%a.subi(&b, u8(247));
     assert(??a.to(i32) == -200);
@@ -919,15 +921,15 @@ test "subi" {
 test "subSimple" {
     var a = %%Bn.init();
     defer a.deinit();
-    %%a.set(u32, 5);
+    %%a.set(u32(5));
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 5);
+    %%b.set(u32(5));
 
     var c = %%Bn.init();
     defer c.deinit();
-    %%c.set(u32, 8);
+    %%c.set(u32(8));
 
     %%Bn.sub(&a, &c, &b);
     assert(??a.to(i64) == 3);
@@ -945,7 +947,7 @@ test "addi" {
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 47);
+    %%b.set(u32(47));
 
     %%a.addi(&b, u8(247));
     assert(??a.to(u32) == 294);
@@ -960,15 +962,15 @@ test "addi" {
 test "addSingle" {
     var a = %%Bn.init();
     defer a.deinit();
-    %%a.set(u32, 5);
+    %%a.set(u32(5));
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 7);
+    %%b.set(u32(7));
 
     var c = %%Bn.init();
     defer c.deinit();
-    %%c.set(u32, 13);
+    %%c.set(u32(13));
 
     %%Bn.add(&a, &b, &c);
     assert(??a.to(u64) == 20);
@@ -989,15 +991,15 @@ test "addSingle" {
 test "addSingleNegative" {
     var a = %%Bn.init();
     defer a.deinit();
-    %%a.set(u32, 5);
+    %%a.set(u32(5));
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(i32, -7);
+    %%b.set(i32(-7));
 
     var c = %%Bn.init();
     defer c.deinit();
-    %%c.set(u32, 13);
+    %%c.set(u32(13));
 
     %%Bn.add(&a, &b, &c);
     assert(??a.to(u64) == 6);
@@ -1005,22 +1007,22 @@ test "addSingleNegative" {
     %%Bn.add(&a, &c, &b);
     assert(??a.to(u64) == 6);
 
-    %%b.set(i32, 14);
-    %%c.set(i32, -14);
+    %%b.set(i32(14));
+    %%c.set(i32(-14));
     %%Bn.add(&a, &b, &c);
     // TODO: Fix negative Bn.addition case.
     //assert(??a.to(i64) == 0);
 
-    %%b.set(i32, -14);
-    %%c.set(i32, 13);
+    %%b.set(i32(-14));
+    %%c.set(i32(13));
     %%Bn.add(&a, &b, &c);
     //assert(??a.to(i64) == -1);
 
     %%Bn.add(&a, &c, &b);
     //assert(??a.to(i64) == -1);
 
-    %%b.set(i32, -3);
-    %%c.set(i32, -5);
+    %%b.set(i32(-3));
+    %%c.set(i32(-5));
     //assert(??a.to(i64) == -8);
 }
 
@@ -1049,7 +1051,7 @@ test "muli" {
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 47);
+    %%b.set(u32(47));
 
     %%a.muli(&b, u8(247));
     assert(??a.to(u32) == 11609);
@@ -1071,52 +1073,52 @@ test "mulSingle" {
     var c = %%Bn.init();
     defer c.deinit();
 
-    %%a.set(i8, 5);
-    %%b.set(i8, 5);
+    %%a.set(i8(5));
+    %%b.set(i8(5));
     %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 25);
 
-    %%b.set(u8, 7);
-    %%c.set(u8, 3);
+    %%b.set(u8(7));
+    %%c.set(u8(3));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 21);
 
-    %%b.set(u8, 90);
-    %%c.set(u8, 78);
+    %%b.set(u8(90));
+    %%c.set(u8(78));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 7020);
 
-    %%b.set(i8, -90);
-    %%c.set(u8, 78);
+    %%b.set(i8(-90));
+    %%c.set(u8(78));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(i64) == -7020);
 
-    %%b.set(u8, 90);
-    %%c.set(i8, -78);
+    %%b.set(u8(90));
+    %%c.set(i8(-78));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(i64) == -7020);
 
-    %%b.set(i8, -90);
-    %%c.set(i8, -78);
+    %%b.set(i8(-90));
+    %%c.set(i8(-78));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 7020);
 
     // Aliasing
-    %%b.set(i8, 5);
-    %%c.set(i8, 4);
+    %%b.set(i8(5));
+    %%c.set(i8(4));
     %%Bn.mul(&a, &b, &c);
     assert(??a.to(u64) == 20);
 
-    %%b.set(i8, 5);
+    %%b.set(i8(5));
     %%Bn.mul(&a, &b, &b);
     assert(??a.to(u64) == 25);
 
-    %%a.set(i8, 4);
-    %%b.set(i8, 5);
+    %%a.set(i8(4));
+    %%b.set(i8(5));
     %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 20);
 
-    %%a.set(i8, 4);
+    %%a.set(i8(4));
     %%Bn.mul(&a, &a, &a);
     assert(??a.to(u64) == 16);
 }
@@ -1127,8 +1129,8 @@ test "mulAlias" {
     var b = %%Bn.init();
     defer b.deinit();
 
-    %%a.set(i8, 5);
-    %%b.set(i8, 5);
+    %%a.set(i8(5));
+    %%b.set(i8(5));
     %%Bn.mul(&a, &a, &b);
     assert(??a.to(u64) == 25);
 }
@@ -1159,14 +1161,14 @@ test "divRemSingleLimb" {
     var r = %%Bn.init();
     defer r.deinit();
 
-    %%a.set(u8, 5);
-    %%b.set(u8, 2);
+    %%a.set(u8(5));
+    %%b.set(u8(2));
     %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(i64) == 2);
     assert(??r.to(i64) == 1);
 
-    %%a.set(u16, 256);
-    %%b.set(u8, 2);
+    %%a.set(u16(256));
+    %%b.set(u8(2));
     %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(i64) == 128);
     assert(??r.to(i64) == 0);
@@ -1192,7 +1194,7 @@ test "divi" {
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.set(u32, 23428);
+    %%b.set(u32(23428));
 
     %%Bn.divi(&q, &r, &b, u8(234));
     assert(??q.to(i32) == 100);
