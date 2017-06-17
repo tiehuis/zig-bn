@@ -8,6 +8,7 @@ const ll = @import("ll.zig");
 const Bn = BnWithAllocator(&std.debug.global_allocator);
 
 // TODO: Use addWithOverflow and friends instead so we can use wider (64-bit) base types.
+// TODO: Assert Limb is unsigned.
 pub const Limb = u32;
 pub const DoubleLimb = @IntType(false, 2 * 8 * @sizeOf(Limb));
 pub const Limbs = std.ArrayList(Limb);
@@ -45,6 +46,11 @@ error InputTooShort;
 pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct {
     const Self = this;
 
+    // Backing storage for a Bn.
+    //
+    // Note: limbs.len returns the number of used limbs and is related to the size of the value
+    // stored whilst limbs.items.len is the underlying capacity which needs to be adjusted prior to
+    // making any low-level calls.
     limbs: Limbs,
     positive: bool,
     allocator: &std.mem.Allocator,
@@ -69,16 +75,43 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         self.limbs.deinit();
     }
 
+    /// Set the value of a Bn object based on some primitive type.
+    pub fn set(self: &Self, comptime T: type, value: T) -> %void {
+        comptime assert(@typeId(T) == builtin.TypeId.Int);
+        // TODO: Allow halving a multiple-sized types into sequence of limbs.
+        comptime assert(@sizeOf(T) <= @sizeOf(Limb));
+
+        %return self.limbs.resize(1);
+        if (!T.is_signed) {
+            self.limbs.items[0] = Limb(value);
+            self.positive = true;
+        } else {
+            // TODO: Check negative underflow possibility.
+            self.limbs.items[0] = Limb(%%std.math.absInt(value));
+            self.positive = false;
+        }
+    }
+
     /// Try convert a Bn object to a smaller-width primitive type.
     ///
     /// Returns null if the Bn object cannot be converted to the specified type without loss.
     pub fn to(self: &Self, comptime T: type) -> ?T {
         if (@typeId(T) == TypeId.Int) {
+            // TODO: Handle oversized integer types!
             if (T.is_signed) {
                 if (self.limbs.len == 1) {
                     const value = self.limbs.items[0];
-                    // TODO: Check negative underflow possibility.
-                    if (self.positive) T(value) else -T(value)
+
+                    // NOTE: We don't handle the @minValue(T) case for a signed integer.
+                    if (@clz(value) != 0 and value != @maxValue(Limb) - 1) {
+                        if (self.positive) {
+                            T(value)
+                        } else {
+                            -T(value)
+                        }
+                    } else {
+                        null
+                    }
                 } else {
                     null
                 }
@@ -124,23 +157,6 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             self.limbs.items[i] = d;
         }
         self.positive = other.positive;
-    }
-
-    /// Set the value of a Bn object based on some primitive type.
-    pub fn set(self: &Self, comptime T: type, value: T) -> %void {
-        comptime assert(@typeId(T) == builtin.TypeId.Int);
-        // TODO: Allow halving a multiple-sized types into sequence of limbs.
-        comptime assert(@sizeOf(T) <= @sizeOf(Limb));
-
-        %return self.limbs.resize(1);
-        if (!T.is_signed) {
-            self.limbs.items[0] = Limb(value);
-            self.positive = true;
-        } else {
-            // TODO: Check negative underflow possibility.
-            self.limbs.items[0] = Limb(%%std.math.absInt(value));
-            self.positive = false;
-        }
     }
 
     /// Set the value of a Bn object to zero.
@@ -420,6 +436,21 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    /// Compute the value of a / b where a and b can be machine integer values.
+    // NOTE: This is not optimized and could use improvement and hence is not the default.
+    pub fn divi(q: &Bn, r: &Bn, a: var, b: var) -> %void {
+        var owned_x: bool = undefined;
+        var owned_y: bool = undefined;
+
+        var x = %return parseBnOrInt("subi", a, &owned_x);
+        defer { if (owned_x) x.deinit() };
+
+        var y = %return parseBnOrInt("subi", b, &owned_y);
+        defer { if (owned_y) y.deinit() };
+
+        %return div(q, r, &x, &y);
+    }
+
     /// Compute the quotient (q) and remainder (r) of a / b.
     ///
     /// q = a / b + r
@@ -443,6 +474,42 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
         ll.divRemSingle(q.limbs.items, &r.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
         q.reduce();
+    }
+
+    // Parse a Bn or Integer into a new Bn.
+    //
+    // NOTE: This could be improved as it is a Copy on Write situiation. Further, we could use the
+    // stack for these Bn allocations since each Bn will be bounded by the machine word size.
+    fn parseBnOrInt(comptime func_name: []const u8, a: var, owned: &bool) -> %Bn {
+        const aT = @typeOf(a);
+        if (aT == &Self) {
+            *owned = true;
+            return a.clone();
+        }
+
+        if (@typeId(aT) != builtin.TypeId.Int) {
+            @compileError(func_name ++ " argument must be an integer or a &Bn, not " ++ @typeName(aT));
+        }
+
+        var x = %return Bn.init();
+        *owned = true;
+        %return x.set(aT, a);
+        x
+    }
+
+    /// Compute the value of a + b where a and b can be machine integer values.
+    // NOTE: This is not optimized and could use improvement and hence is not the default.
+    pub fn addi(dst: &Bn, a: var, b: var) -> %void {
+        var owned_x: bool = undefined;
+        var owned_y: bool = undefined;
+
+        var x = %return parseBnOrInt("addi", a, &owned_x);
+        defer { if (owned_x) x.deinit() };
+
+        var y = %return parseBnOrInt("addi", b, &owned_y);
+        defer { if (owned_y) y.deinit() };
+
+        %return add(dst, &x, &y);
     }
 
     /// Compute the value of a + b.
@@ -478,6 +545,21 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    /// Compute the value of a - b where a and b can be machine integer values.
+    // NOTE: This is not optimized and could use improvement and hence is not the default.
+    pub fn subi(dst: &Bn, a: var, b: var) -> %void {
+        var owned_x: bool = undefined;
+        var owned_y: bool = undefined;
+
+        var x = %return parseBnOrInt("subi", a, &owned_x);
+        defer { if (owned_x) x.deinit() };
+
+        var y = %return parseBnOrInt("subi", b, &owned_y);
+        defer { if (owned_y) y.deinit() };
+
+        %return sub(dst, &x, &y);
+    }
+
     /// Compute the value of a - b.
     ///
     /// dst = a - b
@@ -497,6 +579,21 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             // Limb size will never be smaller than u8.
             %%dst.set(u8, 0);
         }
+    }
+
+    /// Compute the value of a * b where a and b can be machine integer values.
+    // NOTE: This is not optimized and could use improvement and hence is not the default.
+    pub fn muli(dst: &Bn, a: var, b: var) -> %void {
+        var owned_x: bool = undefined;
+        var owned_y: bool = undefined;
+
+        var x = %return parseBnOrInt("subi", a, &owned_x);
+        defer { if (owned_x) x.deinit() };
+
+        var y = %return parseBnOrInt("subi", b, &owned_y);
+        defer { if (owned_y) y.deinit() };
+
+        %return mul(dst, &x, &y);
     }
 
     /// Compute the value of a * b.
@@ -529,7 +626,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 }}
 
-test "test_defaultZero" {
+test "defaultZero" {
     var a = %%Bn.init();
     defer a.deinit();
 
@@ -591,6 +688,7 @@ test "copy" {
 test "toInt" {
     var a = %%Bn.init();
     defer a.deinit();
+
     assert(??a.to(i64) == 0);
 
     a.limbs.items[0] = 5;
@@ -605,6 +703,19 @@ test "toInt" {
     a.limbs.items[0] = 5;
     a.positive = false;
     assert(??a.to(i64) == -5);
+
+    // Edge case sign underflow.
+    a.limbs.items[0] = @maxValue(u32);
+    assert(a.to(i32) == null);
+
+    // This could be handled but simpler to ignore for now
+    a.limbs.items[0] = -@minValue(i32);
+    a.positive = false;
+    assert(a.to(i32) == null);
+
+    a.limbs.items[0] = -(@minValue(i32) + 1);
+    a.positive = false;
+    assert(??a.to(i32) == @minValue(i32) + 1);
 }
 
 test "bitLen" {
@@ -784,6 +895,27 @@ test "cmp" {
     assert(Bn.cmp(&a, &b) == Cmp.Equal);
 }
 
+test "subi" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.subi(u32(47), u8(247));
+    assert(??a.to(i32) == -200);
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.set(u32, 47);
+
+    %%a.subi(&b, u8(247));
+    assert(??a.to(i32) == -200);
+
+    %%a.subi(u8(247), &b);
+    assert(??a.to(i32) == 200);
+
+    %%a.subi(&b, &b);
+    assert(??a.to(i32) == 0);
+}
+
 test "subSimple" {
     var a = %%Bn.init();
     defer a.deinit();
@@ -802,6 +934,27 @@ test "subSimple" {
 
     %%Bn.sub(&a, &b, &c);
     assert(??a.to(i64) == -3);
+}
+
+test "addi" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.addi(u32(47), u8(247));
+    assert(??a.to(u32) == 294);
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.set(u32, 47);
+
+    %%a.addi(&b, u8(247));
+    assert(??a.to(u32) == 294);
+
+    %%a.addi(u8(247), &b);
+    assert(??a.to(u32) == 294);
+
+    %%a.addi(&b, &b);
+    assert(??a.to(u32) == 94);
 }
 
 test "addSingle" {
@@ -885,6 +1038,27 @@ test "addMulti" {
 
     %%Bn.add(&c, &a, &b);
     // TODO: Implement toStr before assertions
+}
+
+test "muli" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    %%a.muli(u32(47), u8(247));
+    assert(??a.to(u32) == 11609);
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.set(u32, 47);
+
+    %%a.muli(&b, u8(247));
+    assert(??a.to(u32) == 11609);
+
+    %%a.muli(u8(247), &b);
+    assert(??a.to(u32) == 11609);
+
+    %%a.muli(&b, &b);
+    assert(??a.to(u32) == 2209);
 }
 
 test "mulSingle" {
@@ -1003,5 +1177,29 @@ test "divRemSingleLimb" {
     %%Bn.div(&q, &r, &a, &b);
     assert(??q.to(u64) == 742377286);
     assert(??r.to(u64) == 254);
+}
+
+test "divi" {
+    var q = %%Bn.init();
+    defer q.deinit();
+
+    var r = %%Bn.init();
+    defer r.deinit();
+
+    %%Bn.divi(&q, &r, u32(23428), u8(234));
+    assert(??q.to(i32) == 100);
+    assert(??r.to(u32) == 28);
+
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.set(u32, 23428);
+
+    %%Bn.divi(&q, &r, &b, u8(234));
+    assert(??q.to(i32) == 100);
+    assert(??r.to(u32) == 28);
+
+    %%Bn.divi(&q, &r, &b, &b);
+    assert(??q.to(i32) == 1);
+    assert(??r.to(u32) == 0);
 }
 
