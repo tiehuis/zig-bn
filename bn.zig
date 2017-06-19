@@ -88,9 +88,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             self.limbs.items[0] = Limb(value);
             self.positive = true;
         } else {
+
             // TODO: Check negative underflow possibility.
             self.limbs.items[0] = Limb(%%std.math.absInt(value));
-            self.positive = false;
+            self.positive = value >= 0;
         }
     }
 
@@ -331,13 +332,11 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         mult.zero();
         defer mult.deinit();
 
-        var radix = %return Bn.init();
-        %%radix.set(base);
-        defer radix.deinit();
-
         for (tail) |item, i| {
-            %return mul(self, self, &radix);
+            %return muli(self, self, base);
             const d = %return convertFromBaseChar(item, base);
+
+            // TODO: Determine difference here with addi, likely aliasing issue?
             %%mult.set(d);
             %return add(self, self, &mult);
         }
@@ -566,6 +565,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// dst = a - b
     pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+        // TODO: Normalize arguments so we have the same sign befor performing comparison.
         const cr = a.cmp(b);
         if (cr == Cmp.Greater) {
             %return dst.zeroExtend(b.limbs.len);
@@ -916,6 +916,15 @@ test "subi" {
 
     %%a.subi(&b, &b);
     assert(??a.to(i32) == 0);
+
+    //%%a.subi(i32(-45), i32(-2));
+    //assert(??a.to(i32) == -43);
+
+    //%%a.subi(i32(-45), i32(2));
+    //assert(??a.to(i32) == -47);
+
+    //%%a.subi(i32(11), i32(14));
+    //assert(??a.to(i32) == -3);
 }
 
 test "subSimple" {
@@ -957,6 +966,12 @@ test "addi" {
 
     %%a.addi(&b, &b);
     assert(??a.to(u32) == 94);
+
+    %%a.addi(i8(-23), i8(24));
+    assert(??a.to(u8) == 1);
+
+    %%a.addi(i8(-23), i8(-24));
+    assert(??a.to(i8) == -47);
 }
 
 test "addSingle" {
@@ -1010,20 +1025,20 @@ test "addSingleNegative" {
     %%b.set(i32(14));
     %%c.set(i32(-14));
     %%Bn.add(&a, &b, &c);
-    // TODO: Fix negative Bn.addition case.
-    //assert(??a.to(i64) == 0);
+    assert(??a.to(i64) == 0);
 
     %%b.set(i32(-14));
     %%c.set(i32(13));
     %%Bn.add(&a, &b, &c);
-    //assert(??a.to(i64) == -1);
+    assert(??a.to(i64) == -1);
 
     %%Bn.add(&a, &c, &b);
-    //assert(??a.to(i64) == -1);
+    assert(??a.to(i64) == -1);
 
     %%b.set(i32(-3));
     %%c.set(i32(-5));
-    //assert(??a.to(i64) == -8);
+    %%Bn.add(&a, &b, &c);
+    assert(??a.to(i64) == -8);
 }
 
 test "addMulti" {
