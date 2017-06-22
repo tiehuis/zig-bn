@@ -305,17 +305,16 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             return error.InvalidBase;
         }
 
+        var asign = true;
         const tail = {
             if (value[0] == '-') {
-                self.positive = false;
+                asign = false;
                 value[1..]
             }
             else if (value[0] == '+') {
-                self.positive = true;
                 value[1..]
             }
             else {
-                self.positive = true;
                 value
             }
         };
@@ -342,6 +341,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
 
         self.reduce();
+        self.positive = asign;
     }
 
     /// Converts the big number to a string representation in the given radix.
@@ -853,8 +853,8 @@ test "setStr" {
     assert(a.limbs.items[1] == 56);
 
     // Set negatives failing.
-    //%%a.setStr(10, "-10");
-    //assert(??a.to(i32) == -10);
+    %%a.setStr(10, "-10");
+    assert(??a.to(i32) == -10);
 
     // TODO: Requires compiler support for equality against errors
     //var r = %%a.setStr("A123");
