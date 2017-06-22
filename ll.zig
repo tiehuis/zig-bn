@@ -111,7 +111,8 @@ pub fn add3(dst: []Limb, a: []const Limb, b: []const Limb) {
     assert(carry == 0);
 }
 
-pub fn sub3(dst: []Limb, a: []Limb, b: []Limb) {
+// Assumes a, b >= 0 and a >= b
+pub fn sub3(dst: []Limb, a: []const Limb, b: []const Limb) {
     assert(a.len >= b.len);
     assert(dst.len >= b.len);
 

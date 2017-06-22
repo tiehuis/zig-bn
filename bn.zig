@@ -88,7 +88,6 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             self.limbs.items[0] = Limb(value);
             self.positive = true;
         } else {
-
             // TODO: Check negative underflow possibility.
             self.limbs.items[0] = Limb(%%std.math.absInt(value));
             self.positive = value >= 0;
@@ -98,7 +97,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// Try convert a Bn object to a smaller-width primitive type.
     ///
     /// Returns null if the Bn object cannot be converted to the specified type without loss.
-    pub fn to(self: &Self, comptime T: type) -> ?T {
+    pub fn to(self: &const Self, comptime T: type) -> ?T {
         if (@typeId(T) == TypeId.Int) {
             // TODO: Handle oversized integer types!
             if (T.is_signed) {
@@ -130,7 +129,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
-    fn debugPrint(self: &Self) {
+    fn debugPrint(self: &const Self) {
         for (self.limbs.toSliceConst()) |d| {
             %%printf("{} ", d);
         }
@@ -138,7 +137,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 
     /// Clone a Bn object, creating a new instance initialized to the same value.
-    pub fn clone(self: &Self) -> %Self {
+    pub fn clone(self: &const Self) -> %Self {
         var limbs = Limbs.init(self.allocator);
         %return limbs.resize(self.limbs.len);
 
@@ -154,7 +153,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 
     /// Copy the value of a Bn object to another.
-    pub fn copy(self: &Self, other: &Self) -> %void {
+    pub fn copy(self: &Self, other: &const Self) -> %void {
         %return self.limbs.resize(other.limbs.len);
         for (other.limbs.toSliceConst()) |d, i| {
             self.limbs.items[i] = d;
@@ -168,6 +167,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     pub fn zero(self: &Self) {
         self.limbs.resizeDown(1);
         self.limbs.items[0] = 0;
+        self.positive = true;
     }
 
     // Zero-extend new allocation space in preparation for an operation.
@@ -231,7 +231,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// Negative values return the same count as their positive counterparts and do not attach an
     /// extra bit for the leading sign bit.
-    pub fn bitLen(self: &Self) -> usize {
+    pub fn bitLen(self: &const Self) -> usize {
         assert(self.limbs.len > 0);
         const base_bits = 8 * @sizeOf(Limb) * (self.limbs.len - 1);
         base_bits + (8 * @sizeOf(Limb) - @clz(self.limbs.items[self.limbs.len - 1]))
@@ -248,12 +248,12 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 
     /// Return true if the Bn is equal to zero.
-    pub fn isZero(self: &Self) -> bool {
+    pub fn isZero(self: &const Self) -> bool {
         self.limbs.len == 1 and self.limbs.items[0] == 0
     }
 
     /// Return true if the Bn is equal to one.
-    pub fn isOne(self: &Self) -> bool {
+    pub fn isOne(self: &const Self) -> bool {
         self.limbs.len == 1 and self.limbs.items[0] == 1
     }
 
@@ -262,7 +262,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// -1 => negative
     ///  0 => zero
     /// +1 => positive
-    pub fn sign(self: &Self) -> isize {
+    pub fn sign(self: &const Self) -> isize {
         if (self.isZero()) {
             return 0;   // These return statements are required to avoid a compile error!
         } else if (self.positive) {
@@ -283,7 +283,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     }
 
     /// Return the number of bits that are set in the Bn.
-    pub fn popcount(self: &Self) -> usize {
+    pub fn popcount(self: &const Self) -> usize {
         var pop: usize = 0;
         for (self.limbs.toSliceConst()) |b| {
             pop += popcnt(b);
@@ -348,7 +348,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// The string is allocated using the internal allocator.
     // TODO: Redo once corrected div behaviour.
-    pub fn toStr(self: &Self, base: u8) -> %std.ArrayList(u8) {
+    pub fn toStr(self: &const Self, base: u8) -> %std.ArrayList(u8) {
         if (base < 2 or base > 62) {
             return error.InvalidBase;
         }
@@ -409,7 +409,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// -1 => a > b
     ///  0 => a == b
     /// +1 => a < b
-    pub fn cmp(a: &Bn, b: &Bn) -> Cmp {
+    pub fn cmp(a: &const Bn, b: &const Bn) -> Cmp {
         if (a.positive and !b.positive) {
             return Cmp.Greater;
         } else if (b.positive and !a.positive) {
@@ -456,7 +456,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// q = a / b + r
     // TODO: Only handles single limb division right now!
-    pub fn div(q: &Bn, r: &Bn, a: &Bn, b: &Bn) -> %void {
+    pub fn div(q: &Bn, r: &Bn, a: &const Bn, b: &const Bn) -> %void {
         assert(!b.isZero());
 
         if (a.isZero()) {
@@ -516,19 +516,20 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// Compute the value of a + b.
     ///
     /// dst = a + b
+    // TODO: Constant arguments.
     pub fn add(dst: &Bn, a: &Bn, b: &Bn) -> %void {
         if (a.positive != b.positive) {
             // (a) + (-b) => a - b
             if (a.positive) {
                 b.abs();
+                defer { if (dst != b) b.neg() }
                 %return sub(dst, a, b);
-                b.neg();
             }
             // (-a) + (b) => b - a
             else {
                 a.abs();
+                defer { if (dst != a) a.neg() };
                 %return sub(dst, b, a);
-                a.neg();
             }
         } else {
             if (a.limbs.len >= b.limbs.len) {
@@ -564,22 +565,73 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// Compute the value of a - b.
     ///
     /// dst = a - b
-    pub fn sub(dst: &Bn, a: &Bn, b: &Bn) -> %void {
-        // TODO: Normalize arguments so we have the same sign befor performing comparison.
-        const cr = a.cmp(b);
-        if (cr == Cmp.Greater) {
-            %return dst.zeroExtend(b.limbs.len);
-            ll.sub3(dst.limbs.items, a.limbs.toSlice(), b.limbs.toSlice());
-            dst.reduce();
-            dst.positive = true;
-        } else if (cr == Cmp.Less) {
-            %return dst.zeroExtend(a.limbs.len);
-            ll.sub3(dst.limbs.items, b.limbs.toSlice(), a.limbs.toSlice());
-            dst.reduce();
-            dst.positive = false;
-        } else {
-            // Limb size will never be smaller than u8.
-            %%dst.set(u8(0));
+    pub fn sub(dst: &Bn, a: &const Bn, b: &const Bn) -> %void {
+        const limb_count = std.math.max(a.limbs.len, b.limbs.len) + 1;
+        %return dst.zeroExtend(limb_count);
+
+        if (a.positive != b.positive) {
+            const av = @ptrCast(&Bn, a);
+            const bv = @ptrCast(&Bn, b);
+
+            // (a) - (-b) => a + b
+            if (a.positive) {
+                bv.positive = true;
+                defer { if (dst != bv) bv.positive = false; }
+                %return add(dst, av, bv);
+            }
+            // (-a) - (+b) => -(a + b)
+            else {
+                av.positive = true;
+                defer { if (dst != av) av.positive = false; }
+                %return add(dst, av, bv);
+                dst.positive = false;
+            }
+        }
+        else {
+            const cr = a.cmp(b);
+            if (cr == Cmp.Equal) {
+                dst.zero();
+                return;
+            }
+
+            // (-a) - (-b) => b - a
+            if (!a.positive) {
+                // NOTE: We invert the condition since b < a => -b > -a
+
+                // b > a => b - a
+                if (cr == Cmp.Greater) {
+                    %return dst.zeroExtend(limb_count);
+                    ll.sub3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+                    dst.reduce();
+                    dst.positive = true;
+                }
+
+                // a > b => b - a = -(a - b)
+                else {
+                    %return dst.zeroExtend(limb_count);
+                    ll.sub3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+                    dst.reduce();
+                    dst.positive = false;
+                }
+            }
+            // (a) - (b)
+            else {
+                // a > b => a - b
+                if (cr == Cmp.Greater) {
+                    %return dst.zeroExtend(limb_count);
+                    ll.sub3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+                    dst.reduce();
+                    dst.positive = true;
+                }
+
+                // b > a => a - b = -(b - a)
+                else {
+                    %return dst.zeroExtend(limb_count);
+                    ll.sub3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+                    dst.reduce();
+                    dst.positive = false;
+                }
+            }
         }
     }
 
@@ -601,6 +653,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// Compute the value of a * b.
     ///
     /// dst = a * b
+    // TODO: Constant arguments.
     pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void {
         const a_sign = a.positive;
         const b_sign = b.positive;
@@ -852,7 +905,6 @@ test "setStr" {
     assert(a.limbs.items[0] == 12072342);
     assert(a.limbs.items[1] == 56);
 
-    // Set negatives failing.
     %%a.setStr(10, "-10");
     assert(??a.to(i32) == -10);
 
@@ -895,6 +947,18 @@ test "cmp" {
     %%a.set(u8(1));
     %%b.set(u8(1));
     assert(Bn.cmp(&a, &b) == Cmp.Equal);
+
+    %%a.set(i8(-43));
+    %%b.set(i8(-2));
+    assert(Bn.cmp(&a, &b) == Cmp.Less);
+
+    %%a.set(i8(-40));
+    %%b.set(i8(-50));
+    assert(Bn.cmp(&a, &b) == Cmp.Greater);
+
+    %%a.set(i8(-40));
+    %%b.set(i8(-40));
+    assert(Bn.cmp(&a, &b) == Cmp.Equal);
 }
 
 test "subi" {
@@ -917,14 +981,14 @@ test "subi" {
     %%a.subi(&b, &b);
     assert(??a.to(i32) == 0);
 
-    //%%a.subi(i32(-45), i32(-2));
-    //assert(??a.to(i32) == -43);
+    %%a.subi(i32(-45), i32(-2));
+    assert(??a.to(i32) == -43);
 
-    //%%a.subi(i32(-45), i32(2));
-    //assert(??a.to(i32) == -47);
+    %%a.subi(i32(-45), i32(2));
+    assert(??a.to(i32) == -47);
 
-    //%%a.subi(i32(11), i32(14));
-    //assert(??a.to(i32) == -3);
+    %%a.subi(i32(11), i32(14));
+    assert(??a.to(i32) == -3);
 }
 
 test "subSimple" {
@@ -945,6 +1009,11 @@ test "subSimple" {
 
     %%Bn.sub(&a, &b, &c);
     assert(??a.to(i64) == -3);
+
+    %%b.set(i32(-43));
+    %%c.set(i32(-2));
+    %%a.sub(&b, &c);
+    assert(??a.to(i64) == -41);
 }
 
 test "addi" {
