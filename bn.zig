@@ -174,7 +174,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     //
     // This will only modify the capacity and zero due to aliasing requirement.
     fn zeroExtend(self: &Self, n: usize) -> %void {
-        %return self.limbs.ensureCapacity(n);
+        %return self.limbs.ensureCapacity(n + 1);
         var i = self.limbs.len;
         while (i <= n) : (i += 1) {
             self.limbs.items[i] = 0;
@@ -371,7 +371,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         %%b.set(base);
 
         var i: usize = 0;
-        while (!tmp.isZero() and i < 10) : (i += 1) {
+        while (!tmp.isZero()) : (i += 1) {
             if (cmp(&tmp, &b) == Cmp.Less) {
                 const char = %return convertToBaseChar(??tmp.to(u8), base);
                 %return str.append(char);
@@ -500,6 +500,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
     /// Compute the value of a + b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
+    // NOTE: This is also incorrect for Bn + integer combination inputs.
     pub fn addi(dst: &Bn, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
@@ -905,6 +906,8 @@ test "setStr" {
     assert(a.limbs.items[0] == 12072342);
     assert(a.limbs.items[1] == 56);
 
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), "240530240918"));
+
     %%a.setStr(10, "-10");
     assert(??a.to(i32) == -10);
 
@@ -918,15 +921,29 @@ test "toStr" {
     defer a.deinit();
 
     a.zero();
-    assert(std.mem.eql(u8, (%%a.toStr(10)).toSlice(), "0"));
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), "0"));
 
     %%a.set(u8(60));
-    assert(std.mem.eql(u8, (%%a.toStr(10)).toSlice(), "60"));
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), "60"));
 
-    // TODO: Fix multi-limb case + negative handling.
     const in1 = "240530240";
     %%a.setStr(10, in1);
-    assert(std.mem.eql(u8, (%%a.toStr(10)).toSlice(), in1));
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), in1));
+
+    const in2 = "24053024012037891241241240971";
+    %%a.setStr(10, in2);
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), in2));
+
+    const in3 = "24053024012037891241241240971123091731230172392673123091723091273";
+    %%a.setStr(10, in3);
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), in3));
+
+    const in3_1 = "24053024012037891241241240971123091731230172392673123091723091274";
+    var b = %%Bn.init();
+    defer b.deinit();
+    %%b.set(u8(1));
+    %%Bn.add(&a, &a, &b);
+    assert(std.mem.eql(u8, (%%a.toStr(10)).toSliceConst(), in3_1));
 }
 
 test "cmp" {
