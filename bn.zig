@@ -7,6 +7,9 @@ const printf = std.io.stdout.printf;
 const ll = @import("ll.zig");
 const Bn = BnWithAllocator(&std.debug.global_allocator);
 
+const stack_mem = @import("mem.zig");
+const BnStack = BnWithAllocator(&stack_mem.stack_allocator);
+
 // TODO: Use addWithOverflow and friends instead so we can use wider (64-bit) base types.
 // TODO: Assert Limb is unsigned.
 pub const Limb = u32;
@@ -357,9 +360,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         tmp.positive = true;    // Handle negative separately.
         defer tmp.deinit();
 
-        var r = %return Bn.init();
+        // These cannot be stack allocated since they are not bounded.
+        var r = %return Self.init();
         defer r.deinit();
-        var b = %return Bn.init();
+        var b = %return Self.init();
         defer b.deinit();
         %%b.set(base);
 
@@ -402,7 +406,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// -1 => a > b
     ///  0 => a == b
     /// +1 => a < b
-    pub fn cmp(a: &const Bn, b: &const Bn) -> Cmp {
+    pub fn cmp(a: &const Self, b: &const Self) -> Cmp {
         if (a.positive and !b.positive) {
             return Cmp.Greater;
         } else if (b.positive and !a.positive) {
@@ -430,9 +434,33 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
     }
 
+    // Parse a Bn or Integer into a new Bn.
+    //
+    // NOTE: This could be improved as it is a Copy on Write situation. Further, we could use the
+    // stack for these Bn allocations since each Bn will be bounded by the machine word size.
+    fn parseBnOrInt(comptime func_name: []const u8, a: var, owned: &bool) -> %Self {
+        const aT = @typeOf(a);
+        if (aT == &Self) {
+            *owned = true;
+            return a.clone();
+        }
+
+        if (@typeId(aT) != builtin.TypeId.Int) {
+            @compileError(func_name ++ " argument must be an integer or a &Bn, not " ++ @typeName(aT));
+        }
+
+        // TODO: Can we be polymorphic over the self-type and mix different Bn objects with
+        // different backing allocators? Can we determine this entirely at compile-time? Don't really
+        // need polymorphism strictly for this.
+        var x = %return Self.init();
+        *owned = true;
+        %return x.set(a);
+        x
+    }
+
     /// Compute the value of a / b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
-    pub fn divi(q: &Bn, r: &Bn, a: var, b: var) -> %void {
+    pub fn divi(q: &Self, r: &Self, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
@@ -449,7 +477,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// q = a / b + r
     // TODO: Only handles single limb division right now!
-    pub fn div(q: &Bn, r: &Bn, a: &const Bn, b: &const Bn) -> %void {
+    pub fn div(q: &Self, r: &Self, a: &const Self, b: &const Self) -> %void {
         assert(!b.isZero());
 
         if (a.isZero()) {
@@ -470,31 +498,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         q.reduce();
     }
 
-    // Parse a Bn or Integer into a new Bn.
-    //
-    // NOTE: This could be improved as it is a Copy on Write situation. Further, we could use the
-    // stack for these Bn allocations since each Bn will be bounded by the machine word size.
-    fn parseBnOrInt(comptime func_name: []const u8, a: var, owned: &bool) -> %Bn {
-        const aT = @typeOf(a);
-        if (aT == &Self) {
-            *owned = true;
-            return a.clone();
-        }
-
-        if (@typeId(aT) != builtin.TypeId.Int) {
-            @compileError(func_name ++ " argument must be an integer or a &Bn, not " ++ @typeName(aT));
-        }
-
-        var x = %return Bn.init();
-        *owned = true;
-        %return x.set(a);
-        x
-    }
-
     /// Compute the value of a + b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
     // NOTE: This is also incorrect for Bn + integer combination inputs.
-    pub fn addi(dst: &Bn, a: var, b: var) -> %void {
+    pub fn addi(dst: &Self, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
@@ -511,7 +518,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// dst = a + b
     // TODO: Constant arguments.
-    pub fn add(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+    pub fn add(dst: &Self, a: &Self, b: &Self) -> %void {
         if (a.positive != b.positive) {
             // (a) + (-b) => a - b
             if (a.positive) {
@@ -543,7 +550,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
     /// Compute the value of a - b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
-    pub fn subi(dst: &Bn, a: var, b: var) -> %void {
+    pub fn subi(dst: &Self, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
@@ -559,7 +566,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     /// Compute the value of a - b.
     ///
     /// dst = a - b
-    pub fn sub(dst: &Bn, a: &const Bn, b: &const Bn) -> %void {
+    pub fn sub(dst: &Self, a: &const Self, b: &const Self) -> %void {
         const limb_count = std.math.max(a.limbs.len, b.limbs.len) + 1;
         %return dst.zeroExtend(limb_count);
 
@@ -631,7 +638,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
     /// Compute the value of a * b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
-    pub fn muli(dst: &Bn, a: var, b: var) -> %void {
+    pub fn muli(dst: &Self, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
 
@@ -648,7 +655,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// dst = a * b
     // TODO: Constant arguments.
-    pub fn mul(dst: &Bn, a: &Bn, b: &Bn) -> %void {
+    pub fn mul(dst: &Self, a: &Self, b: &Self) -> %void {
         const a_sign = a.positive;
         const b_sign = b.positive;
         const signn = a_sign == b_sign;
