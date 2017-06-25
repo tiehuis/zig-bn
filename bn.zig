@@ -327,17 +327,10 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         %return self.zeroExtend(approxLength);
         self.zero();
 
-        var mult = %return Bn.init();
-        mult.zero();
-        defer mult.deinit();
-
         for (tail) |item, i| {
             %return muli(self, self, base);
             const d = %return convertFromBaseChar(item, base);
-
-            // TODO: Determine difference here with addi, likely aliasing issue?
-            %%mult.set(d);
-            %return add(self, self, &mult);
+            %return addi(self, self, d);
         }
 
         self.reduce();
@@ -1139,8 +1132,12 @@ test "addMulti" {
     var c = %%Bn.init();
     defer c.deinit();
 
-    %%Bn.add(&c, &a, &b);
-    // TODO: Implement toStr before assertions
+    const in1 = "1230917241240";
+    const in2 = "1230917241247";
+    %%a.setStr(10, in1);
+    %%a.addi(&a, i32(7));
+    const r = (%%a.toStr(10)).toSliceConst();
+    assert(std.mem.eql(u8, r, in2));
 }
 
 test "muli" {
