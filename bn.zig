@@ -1243,17 +1243,19 @@ test "mulAlias" {
 test "mulMulti" {
     var a = %%Bn.init();
     defer a.deinit();
-    %%a.setStr(16, "FFFFFFFF");
+    %%a.setStr(10, "123781236123986123");
 
     var b = %%Bn.init();
     defer b.deinit();
-    %%b.setStr(16, "FFFFFFFF");
+    %%b.setStr(10, "1238016723123986123123123123123123");
 
     var c = %%Bn.init();
     defer c.deinit();
 
-    %%Bn.mul(&c, &a, &b);
-    // TODO: Implement toStr before assertions
+    const in1 = "153243240330453677276335848072197032807715672422129";
+    %%c.mul(&a, &b);
+    const r = (%%c.toStr(10)).toSliceConst();
+    assert(std.mem.eql(u8, (%%c.toStr(10)).toSliceConst(), in1));
 }
 
 test "divRemSingleLimb" {

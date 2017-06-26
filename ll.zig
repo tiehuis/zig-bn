@@ -106,7 +106,7 @@ pub fn divRemSingle(q: []Limb, r: &Limb, a: []const Limb, b: Limb) {
         const index = a.len - i - 1;
 
         // This does not handle the special case where a < b
-        div2LimbByLimb(&q[index], r, *r, a[index], b);
+        @inlineCall(div2LimbByLimb, &q[index], r, *r, a[index], b);
     }
 }
 
@@ -151,11 +151,11 @@ pub fn add3(dst: []Limb, a: []const Limb, b: []const Limb) {
     var i: usize = 0;
 
     while (i < b.len) : (i += 1) {
-        dst[i] = addLimbWithCarry(a[i], b[i], &carry);
+        dst[i] = @inlineCall(addLimbWithCarry, a[i], b[i], &carry);
     }
 
     while (i < a.len) : (i += 1) {
-        dst[i] = addLimbWithCarry(a[i], 0, &carry);
+        dst[i] = @inlineCall(addLimbWithCarry, a[i], 0, &carry);
         if (carry == 0) {
             break;
         }
@@ -217,7 +217,7 @@ pub fn sub3(dst: []Limb, a: []const Limb, b: []const Limb) {
 
     var borrow: Limb = 0;
     for (b) |_, i| {
-        dst[i] = subLimbWithBorrow(a[i], b[i], &borrow);
+        dst[i] = @inlineCall(subLimbWithBorrow, a[i], b[i], &borrow);
     }
 }
 
@@ -233,12 +233,32 @@ fn muladd3Line(dst: []Limb, a: []const Limb, b: Limb) {
 
     var carry: Limb = 0;
     for (a) |_, i| {
-        dst[i] += muladdLimbWithCarry(dst[i], a[i], b, &carry);
+        dst[i] = @inlineCall(muladdLimbWithCarry, dst[i], a[i], b, &carry);
     }
 
     if (carry != 0) {
-        dst[a.len] = muladdLimbWithCarry(dst[a.len], 0, b, &carry);
+        dst[a.len] = @inlineCall(muladdLimbWithCarry, dst[a.len], 0, b, &carry);
     }
+
+    assert(carry == 0);
+}
+
+test "ll.muladd3Line" {
+    var dst: [3]Limb = undefined;
+    var a: [2]Limb = undefined;
+    var b: Limb = undefined;
+
+    dst[0] = 0xF0000000;
+    dst[1] = 0xE0000000;
+    dst[2] = 0xD0000000;
+    a[0] = 0xFFFFFFFF;
+    a[1] = 0xEEEEEEEE;
+    b = 2;
+
+    muladd3Line(dst[0..], a[0..], b);
+    assert(dst[0] == 0xEFFFFFFE);
+    assert(dst[1] == 0xBDDDDDDE);
+    assert(dst[2] == 0xD0000002);
 }
 
 // dst must not alias either a or b.
@@ -252,7 +272,43 @@ pub fn muladd3(dst: []Limb, a: []const Limb, b: []const Limb) {
     // Prefer broadcasting over the longer limb input instead of the short to use the longest
     // cache-lines and minimize function calls.
     for (b) |_, i| {
-        muladd3Line(dst[i..], a, b[i]);
+        @inlineCall(muladd3Line, dst[i..], a, b[i]);
     }
 }
 
+test "ll.muladd3 single" {
+    var dst: [3]Limb = undefined;
+    var a: [1]Limb = undefined;
+    var b: [1]Limb = undefined;
+
+    dst[0] = 0x0F0F0F0F;
+    dst[1] = 0;
+    dst[2] = 0;
+    a[0] = 1879;
+    b[0] = 123091724;
+
+    muladd3(dst[0..], a[0..], b[0..]);
+    assert(dst[0] == 0xE8FA7423);
+    assert(dst[1] == 0x35);
+}
+
+test "ll.muladd3 multi" {
+    var dst: [5]Limb = undefined;
+    var a: [2]Limb = undefined;
+    var b: [2]Limb = undefined;
+
+    dst[0] = 0xF0F0F0F0;
+    dst[1] = 0xD0D0D0D0;
+    dst[2] = 0xE0E0E0E0;
+    dst[3] = 0xC0C0C0C0;
+    a[0] = 0xFFEEDDCC;
+    a[1] = 0x00112233;
+    b[0] = 0x55778823;
+    b[1] = 0xF000000E;
+
+    muladd3(dst[0..], a[0..], b[0..]);
+    assert(dst[0] == 0xAA41A3D4);
+    assert(dst[1] == 0x568A86B9);
+    assert(dst[2] == 0xA1C66803);
+    assert(dst[3] == 0xC0D0D0D1);
+}
