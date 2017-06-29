@@ -680,6 +680,14 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         b.positive = b_sign;
         dst.positive = signn;
     }
+
+    /// Compute the value of a << n, storing the result in dst.
+    ///
+    /// If a is negative, the result is equivalent to -((+a) << n)
+    pub fn shiftLeft(dst: &Self, a: &const Self, n: usize) -> %void {
+        %return dst.zeroExtend(dst.limbs.len + n / @sizeOf(Limb) + 1);
+        ll.shiftLeft(dst.limbs.items, a.limbs.toSliceConst(), n);
+    }
 }}
 
 test "defaultZero" {
@@ -1312,3 +1320,17 @@ test "divi" {
     assert(??r.to(u32) == 0);
 }
 
+test "shiftLeft" {
+    var a = %%Bn.init();
+    defer a.deinit();
+
+    var b = %%Bn.init();
+    defer b.deinit();
+
+    %%b.set(u32(0xFFFF));
+    %%a.shiftLeft(&b, 1);
+    assert(??a.to(u32) == 0x1FFFE);
+
+    %%a.shiftLeft(&a, 0);
+    assert(??a.to(u32) == 0x1FFFE);
+}

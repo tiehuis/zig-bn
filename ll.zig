@@ -312,3 +312,60 @@ test "ll.muladd3 multi" {
     assert(dst[2] == 0xA1C66803);
     assert(dst[3] == 0xC0D0D0D1);
 }
+
+/// Shift a left by n bits, storing the result in dst.
+///
+/// dst and a are allowed to alias.
+pub fn shiftLeft(dst: []Limb, a: []const Limb, n: usize) {
+    const sizeOfLimbBits = 8 * @sizeOf(Limb);
+
+    // NOTE: Could reduce this further and not strictly require the extra leading limb.
+    // Required for exact alias on non overflowing shift, unless we extend by 1 minimum limb above
+    // which is an option.
+    assert(dst.len >= a.len + n / sizeOfLimbBits);
+    assert(dst.len >= 1 and a.len >= 1);
+
+    const limb_shift = @divTrunc(n, sizeOfLimbBits) + 1;
+    const sub_limb_shift: Limb = Limb(@rem(n, sizeOfLimbBits));
+
+    // Iterate in reverse.
+    var lo: Limb = 0;
+    for (a) |_, ri| {
+        const i = a.len - ri - 1;
+        const nlo = a[i] <<% sub_limb_shift;
+        dst[i + limb_shift] = (a[i] >> (sizeOfLimbBits - sub_limb_shift)) | lo;
+        lo = nlo;
+    }
+
+    dst[limb_shift - 1] = lo;
+    for (dst[0 .. limb_shift - 1]) |*b| {
+        *b = 0;
+    }
+}
+
+test "ll.shiftLeft" {
+    var dst: [3]Limb = undefined;
+    var a: [3]Limb = undefined;
+
+    a[0] = 0xFFFFFFFF;
+    shiftLeft(dst[0..], a[0..1], 0);
+    assert(dst[0] == 0xFFFFFFFF);
+
+    a[0] = 0xFFFFFFFF;
+    a[1] = 0;
+    shiftLeft(dst[0..], a[0..2], 1);
+    assert(dst[0] == 0xFFFFFFFE);
+    assert(dst[1] == 0x1);
+
+    a[0] = 0xF0F0F0F0;
+    a[1] = 0x0D0D0D0D;
+    shiftLeft(dst[0..], a[0..2], 12);
+    assert(dst[0] == 0x0F0F0000);
+    assert(dst[1] == 0xD0D0DF0F);
+    assert(dst[2] == 0x000000D0);
+
+    dst[0] = 0x0FFFFFFF;
+    shiftLeft(dst[0..], dst[0..1], 4);
+    assert(dst[0] == 0xFFFFFFF0);
+}
+
