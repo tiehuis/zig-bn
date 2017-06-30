@@ -500,7 +500,6 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
 
     /// Compute the value of a + b where a and b can be machine integer values.
     // NOTE: This is not optimized and could use improvement and hence is not the default.
-    // NOTE: This is also incorrect for Bn + integer combination inputs.
     pub fn addi(dst: &Self, a: var, b: var) -> %void {
         var owned_x: bool = undefined;
         var owned_y: bool = undefined;
@@ -514,36 +513,38 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         %return add(dst, &x, &y);
     }
 
-    /// Compute the value of a + b.
+    /// Compute the value of a + b storing the result in dst.
     ///
     /// dst = a + b
-    // TODO: Constant arguments.
-    pub fn add(dst: &Self, a: &Self, b: &Self) -> %void {
+    ///
+    /// dst, a, and b are allowed to alias one another.
+    pub fn add(dst: &Self, a: &const Self, b: &const Self) -> %void {
         if (a.positive != b.positive) {
             // (a) + (-b) => a - b
             if (a.positive) {
-                b.abs();
-                defer { if (dst != b) b.neg() }
-                %return sub(dst, a, b);
+                const bp = @ptrCast(&Self, b);
+                bp.abs();
+                defer { if (dst != bp) bp.neg() }
+                %return sub(dst, a, bp);
             }
             // (-a) + (b) => b - a
             else {
-                a.abs();
-                defer { if (dst != a) a.neg() };
-                %return sub(dst, b, a);
+                const ap = @ptrCast(&Self, a);
+                ap.abs();
+                defer { if (dst != ap) ap.neg() };
+                %return sub(dst, b, ap);
             }
         } else {
             if (a.limbs.len >= b.limbs.len) {
                 // if dst aliases a then we cannot use the slice itself, nor can we do an actual resize.
                 %return dst.zeroExtend(a.limbs.len + 1);
                 ll.add3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
-                dst.reduce();
             } else {
                 %return dst.zeroExtend(b.limbs.len + 1);
                 ll.add3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
-                dst.reduce();
             }
 
+            dst.reduce();
             dst.positive = a.positive;
         }
     }
@@ -651,34 +652,39 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         %return mul(dst, &x, &y);
     }
 
-    /// Compute the value of a * b.
+    /// Compute the value of a * b, storing the result in dst.
     ///
     /// dst = a * b
-    // TODO: Constant arguments.
-    pub fn mul(dst: &Self, a: &Self, b: &Self) -> %void {
-        const a_sign = a.positive;
-        const b_sign = b.positive;
-        const signn = a_sign == b_sign;
-        a.positive = true;
-        b.positive = true;
+    ///
+    /// dst, a and b are allowed to alias one another.
+    pub fn mul(dst: &Self, a: &const Self, b: &const Self) -> %void {
+        dst.positive = a.positive == b.positive;
 
-        // TODO: Don't copy if non-alias.
-        var temp = Limbs.init(&std.debug.global_allocator);
-        defer temp.deinit();
-        %return temp.resize(a.limbs.len + b.limbs.len + 1);
+        // TODO: The non-aliasing case has an issue that needs to be resolved.
+        if (false) {
+            %return dst.zeroExtend(a.limbs.len + b.limbs.len + 1);
+            dst.zero();
 
-        if (a.limbs.len >= b.limbs.len) {
-            ll.muladd3(temp.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+            if (a.limbs.len >= b.limbs.len) {
+                ll.muladd3(dst.limbs.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+            } else {
+                ll.muladd3(dst.limbs.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+            }
         } else {
-            ll.muladd3(temp.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+            var temp = Limbs.init(dst.allocator);
+            defer temp.deinit();
+            %return temp.resize(a.limbs.len + b.limbs.len + 1);
+
+            if (a.limbs.len >= b.limbs.len) {
+                ll.muladd3(temp.items, a.limbs.toSliceConst(), b.limbs.toSliceConst());
+            } else {
+                ll.muladd3(temp.items, b.limbs.toSliceConst(), a.limbs.toSliceConst());
+            }
+
+            for (temp.items) |item, i| { dst.limbs.items[i] = item }
         }
 
-        for (temp.items) |item, i| { dst.limbs.items[i] = item }
         dst.reduce();
-
-        a.positive = a_sign;
-        b.positive = b_sign;
-        dst.positive = signn;
     }
 
     /// Compute the value of a << n, storing the result in dst.
@@ -1095,6 +1101,15 @@ test "addSingle" {
 
     %%Bn.add(&a, &a, &b);
     assert(??a.to(u64) == 59);
+
+    // Aliasing
+    %%a.set(u32(13));
+    %%a.add(&a, &a);
+    assert(??a.to(u8) == 26);
+
+    %%b.set(u8(13));
+    %%a.add(&b, &a);
+    assert(??a.to(u8) == 39);
 }
 
 test "addSingleNegative" {
@@ -1151,8 +1166,15 @@ test "addMulti" {
     const in2 = "1230917241247";
     %%a.setStr(10, in1);
     %%a.addi(&a, i32(7));
-    const r = (%%a.toStr(10)).toSliceConst();
-    assert(std.mem.eql(u8, r, in2));
+    const r1 = (%%a.toStr(10)).toSliceConst();
+    assert(std.mem.eql(u8, r1, in2));
+
+    const in3 = "12309712934016249012640192641209684";
+    const in4 = "24619425868032498025280385282419368";
+    %%a.setStr(10, in3);
+    %%a.addi(&a, &a);
+    const r2 = (%%a.toStr(10)).toSliceConst();
+    assert(std.mem.eql(u8, r2, in4));
 }
 
 test "muli" {
