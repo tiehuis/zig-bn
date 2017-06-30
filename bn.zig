@@ -658,8 +658,6 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
     ///
     /// dst, a and b are allowed to alias one another.
     pub fn mul(dst: &Self, a: &const Self, b: &const Self) -> %void {
-        dst.positive = a.positive == b.positive;
-
         // TODO: The non-aliasing case has an issue that needs to be resolved.
         if (false) {
             %return dst.zeroExtend(a.limbs.len + b.limbs.len + 1);
@@ -685,6 +683,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
         }
 
         dst.reduce();
+        dst.positive = a.positive == b.positive;
     }
 
     /// Compute the value of a << n, storing the result in dst.
