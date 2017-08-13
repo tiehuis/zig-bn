@@ -332,7 +332,7 @@ pub fn shiftLeft(dst: []Limb, a: []const Limb, n: usize) {
     var lo: Limb = 0;
     for (a) |_, ri| {
         const i = a.len - ri - 1;
-        const nlo = a[i] <<% sub_limb_shift;
+        const nlo = a[i] << sub_limb_shift;
         dst[i + limb_shift] = (a[i] >> (sizeOfLimbBits - sub_limb_shift)) | lo;
         lo = nlo;
     }
