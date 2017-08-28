@@ -326,15 +326,22 @@ pub fn shiftLeft(dst: []Limb, a: []const Limb, n: usize) {
     assert(dst.len >= 1 and a.len >= 1);
 
     const limb_shift = @divTrunc(n, sizeOfLimbBits) + 1;
-    const sub_limb_shift: Limb = Limb(@rem(n, sizeOfLimbBits));
+    const sub_limb_shift = @rem(n, sizeOfLimbBits);
 
     // Iterate in reverse.
     var lo: Limb = 0;
     for (a) |_, ri| {
         const i = a.len - ri - 1;
-        const nlo = a[i] << sub_limb_shift;
-        dst[i + limb_shift] = (a[i] >> (sizeOfLimbBits - sub_limb_shift)) | lo;
-        lo = nlo;
+        // NOTE: Should zig allow shift equal to size of integer equivalent to setting to 0?
+        // See #403. Makes compile-shift values not able to be used though which isn't ideal.
+        if (sub_limb_shift != 0) {
+            const nlo = a[i] << u5(sub_limb_shift);
+            dst[i + limb_shift] = (a[i] >> u5(sizeOfLimbBits - sub_limb_shift)) | lo;
+            lo = nlo;
+        } else {
+            dst[i + limb_shift] = lo;
+            lo = a[i];
+        }
     }
 
     dst[limb_shift - 1] = lo;

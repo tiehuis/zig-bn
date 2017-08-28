@@ -326,7 +326,7 @@ pub fn BnWithAllocator(comptime allocator: &std.mem.Allocator) -> type { struct 
             return error.InputTooShort;
         }
 
-        const approxLength = ((std.math.log(2, base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
+        const approxLength = ((std.math.log(u8, 2, base) * value.len) + 1) / (8 * @sizeOf(Limb)) + 1;
         %return self.zeroExtend(approxLength);
         self.zero();
 
