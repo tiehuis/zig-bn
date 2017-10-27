@@ -1,7 +1,8 @@
+const std = @import("std");
 const bn = @import("bn.zig");
 const Limb = bn.Limb;
 const DoubleLimb = bn.DoubleLimb;
-const assert = @import("std").debug.assert;
+const assert = std.debug.assert;
 
 /// Low-level operations on single limbs.
 ///
@@ -332,16 +333,9 @@ pub fn shiftLeft(dst: []Limb, a: []const Limb, n: usize) {
     var lo: Limb = 0;
     for (a) |_, ri| {
         const i = a.len - ri - 1;
-        // NOTE: Should zig allow shift equal to size of integer equivalent to setting to 0?
-        // See #403. Makes compile-shift values not able to be used though which isn't ideal.
-        if (sub_limb_shift != 0) {
-            const nlo = a[i] << u5(sub_limb_shift);
-            dst[i + limb_shift] = (a[i] >> u5(sizeOfLimbBits - sub_limb_shift)) | lo;
-            lo = nlo;
-        } else {
-            dst[i + limb_shift] = lo;
-            lo = a[i];
-        }
+        const nlo = std.math.shl(Limb, a[i], sub_limb_shift);
+        dst[i + limb_shift] = std.math.shr(Limb, a[i], sizeOfLimbBits - sub_limb_shift) | lo;
+        lo = nlo;
     }
 
     dst[limb_shift - 1] = lo;
