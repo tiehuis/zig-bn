@@ -387,14 +387,14 @@ pub const BigInt = struct {
 
         try r.limbs.ensureCapacity(a.limbs.len + b.limbs.len);
 
-        const r_len = if (a.limbs.len >= b.limbs.len)
-            llmul(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst())
-        else
-            llmul(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst())
-        ;
+        if (a.limbs.len >= b.limbs.len) {
+            llmul(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
+        } else {
+            llmul(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
+        }
 
         r.positive = a.positive == b.positive;
-        r.limbs.len = r_len;
+        r.normN(a.limbs.len + b.limbs.len);
     }
 
     // a + b * c + *carry, sets carry to the overflow bits
@@ -407,39 +407,21 @@ pub const BigInt = struct {
     // Knuth 4.3.1, Algorithm M.
     //
     // r MUST NOT alias any of a or b.
-    fn llmul(r: []Limb, a: []const Limb, b: []const Limb) usize {
+    fn llmul(r: []Limb, a: []const Limb, b: []const Limb) void {
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + b.len);
 
-        for (r[b.len .. b.len + a.len]) |*e| {
-            *e = 0;
-        }
+        mem.set(u32, r[0 .. a.len + b.len], 0);
 
-        var carry: Limb = 0;
-
-        // TODO: multi-limb interior shift is wrong
-        for (a) |_, i| {
-            if (a[i] == 0) {
-                r[i] = 0;
-                continue;
-            }
-
-            for (b) |__, j| {
-                // TODO: @mulWithOverflow and @addWithOverflow
+        var i: usize = 0;
+        while (i < a.len) : (i += 1) {
+            var carry: Limb = 0;
+            var j: usize = 0;
+            while (j < b.len) : (j += 1) {
                 r[i+j] = addMulWithCarry(r[i+j], a[i], b[j], &carry);
             }
+            r[i+j] = carry;
         }
-
-        // TODO: Perform this break in the upper loop instead
-        var i: usize = a.len;
-        while (i < a.len + b.len) : (i += 1) {
-            if (r[i] == 0) {
-                break;
-            }
-        }
-
-        r[i] = carry;
-        return i + (if (carry != 0) usize(1) else 0);
     }
 
     // quo = a / b (rem rem)
@@ -825,8 +807,7 @@ test "bigint mul multi-multi" {
     var c = try BigInt.init(al);
     try c.mul(&a, &b);
 
-    // TODO:
-    // debug.assert((try c.to(u128)) == 0xa0e62b70b5fb40848943feb9742ee9a5);
+    debug.assert((try c.to(u128)) == 0xa0e62b70b5fb40848943feb9742ee9a5);
 }
 
 test "bigint div single-single no rem" {
