@@ -4,23 +4,22 @@ The interface is akin to that of GMP.
 
 ```
 const std = @import("std");
+const ArenaAllocator = std.heap.ArenaAllocator;
 
-const bn = @import("bn.zig");
-const Bn = bn.BnWithAllocator(&std.debug.global_allocator);
+const BigInt = @import("bigint.zig").BigInt;
 
-pub fn main() -> %void {
-    var a = %%Bn.init();
-    defer a.deinit();
-    var b = %%Bn.init();
-    defer b.deinit();
+pub fn main() !void {
+    const arena = ArenaAllocator.init(std.debug.global_allocator);
+    defer arena.deinit();
+    var al = arena.allocator;
 
-    %%a.setStr(10, "1990273423429836742364234234234");
-    %%b.setStr(10, "1990273423429836742364234234234");
+    var a = try BigInt.init(al);
+    var b = try BigInt.init(al);
 
-    %%bn.add(&a, &a, &b);
+    try a.set(1990273423429836742364234234234);
+    try b.set(1990273423429836742364234234234);
 
-    var result = %%a.toStr();
-    defer result.deinit();
-    %%std.io.stdout.printf("{}\n", result);
+    try a.add(&a, &b);
+    try a.mul(&a, &b);
 }
 ```
