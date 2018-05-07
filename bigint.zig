@@ -432,10 +432,9 @@ pub const BigInt = struct {
 
         if (b.limbs.len == 1) {
             try quo.limbs.ensureCapacity(a.limbs.len);
-            // rem guaranteed length 1
 
-            const q_len = lldiv1(quo.limbs.items[0..], &rem.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
-            quo.limbs.len = q_len;
+            lldiv1(quo.limbs.items[0..], &rem.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
+            quo.norm1(a.limbs.len);
             quo.positive = a.positive == b.positive;
 
             rem.limbs.len = 1;
@@ -444,11 +443,11 @@ pub const BigInt = struct {
             try quo.limbs.ensureCapacity(a.limbs.len);
             try rem.limbs.ensureCapacity(b.limbs.len);
 
-            const q_len = lldiv2(quo.limbs.items[0..], rem.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            quo.limbs.len = q_len;
+            lldivN(quo.limbs.items[0..], rem.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
+            quo.normN(a.limbs.len);
             quo.positive = a.positive == b.positive;
 
-            rem.limbs.len = 1; // TODO: Need this length returned
+            rem.normN(b.limbs.len);
             rem.positive = true;
         }
     }
@@ -456,27 +455,23 @@ pub const BigInt = struct {
     // Knuth 4.3.1, Exercise 16.
     //
     // Returns the length of rop.
-    fn lldiv1(quo: []Limb, rem: &Limb, a: []const Limb, b: Limb) usize {
-        debug.assert(a.len != 0);
+    fn lldiv1(quo: []Limb, rem: &Limb, a: []const Limb, b: Limb) void {
         debug.assert(a.len > 1 or a[0] > b);
         debug.assert(quo.len >= a.len);
 
         *rem = 0;
         for (a) |_, ri| {
             const i = a.len - ri - 1;
-
             const double_limb = ((DoubleLimb(*rem) << Limb.bit_count) - *rem) | a[i];
             quo[i] = Limb(@divFloor(double_limb, b));
             *rem = Limb(@mod(double_limb, b));
         }
-
-        return a.len - (if (a[a.len - 1] < b) usize(1) else 0);
     }
 
     // Knuth 4.3.1, Algorithm D.
     //
     // quo, a and b MUST NOT alias
-    fn lldiv2(quo: []Limb, rem: []Limb, a: []const Limb, b: []const Limb) usize {
+    fn lldivN(quo: []Limb, rem: []Limb, a: []const Limb, b: []const Limb) void {
         debug.assert(a.ptr != b.ptr and a.ptr != quo.ptr and b.ptr != quo.ptr);
         debug.assert(a.len >= b.len);
         debug.assert(b.len > 1);
@@ -511,9 +506,7 @@ pub const BigInt = struct {
         }
 
         r[limb_shift - 1] = carry;
-        for (r[0..limb_shift - 1]) |*e| {
-            *e = 0;
-        }
+        mem.set(u32, r[0 .. limb_shift - 1], 0);
     }
 
     // r = a >> shift
@@ -532,6 +525,7 @@ pub const BigInt = struct {
     }
 
     fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
+        debug.assert(a.len >= 1);
         debug.assert(r.len >= a.len - (shift / Limb.bit_count));
 
         const limb_shift = shift / Limb.bit_count;
