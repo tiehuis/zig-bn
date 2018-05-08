@@ -1,7 +1,6 @@
 // TODO:
 // - Handle zero cases everywhere required (e.g. add).
 // - multi-limb division
-// - inner limbs of multi-limb mul
 // - confirm what behavior we want for shift on negative values
 // - replace DoubleLimb requirement with @xxxWithOverflow builtins.
 
@@ -171,64 +170,54 @@ pub const BigInt = struct {
         }
     }
 
+    // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
+    pub fn cmpAbs(a: &const BigInt, b: &const BigInt) i8 {
+        if (a.limbs.len < b.limbs.len) {
+            return -1;
+        }
+        if (a.limbs.len > b.limbs.len) {
+            return 1;
+        }
+
+        var i: usize = a.limbs.len - 1;
+        while (i != 0) : (i -= 1) {
+            if (a.limbs.items[i] != b.limbs.items[i]) {
+                break;
+            }
+        }
+
+        if (a.limbs.items[i] < b.limbs.items[i]) {
+            return -1;
+        } else if (a.limbs.items[i] > b.limbs.items[i]) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    // returns -1, 0, 1 if a < b, a == b or a > b respectively.
+    pub fn cmp(a: &const BigInt, b: &const BigInt) i8 {
+        if (a.positive != b.positive) {
+            return if (a.positive) i8(1) else -1;
+        } else {
+            const r = cmpAbs(a, b);
+            return if (a.positive) r else -r;
+        }
+    }
+
+    // if a == 0
+    pub fn eqZero(a: &const BigInt) bool {
+        return a.limbs.len == 1 and a.limbs.items[0] == 0;
+    }
+
     // if |a| == |b|
     pub fn eqAbs(a: &const BigInt, b: &const BigInt) bool {
-        if (a.limbs.len != b.limbs.len) {
-            return false;
-        } else {
-            return mem.eql(Limb, a.limbs.toSliceConst(), b.limbs.toSliceConst());
-        }
+        return cmpAbs(a, b) == 0;
     }
 
     // if a == b
     pub fn eq(a: &const BigInt, b: &const BigInt) bool {
-        if (a.limbs.len != b.limbs.len) {
-            return false;
-        } else {
-            return if (a.eqAbs(b)) a.positive == b.positive else false;
-        }
-    }
-
-    // if |a| >= |b|
-    pub fn greaterThanEqAbs(a: &const BigInt, b: &const BigInt) bool {
-        if (a.limbs.len > b.limbs.len) {
-            return true;
-        } else if (a.limbs.len == b.limbs.len and a.limbs.items[a.limbs.len - 1] >= b.limbs.items[b.limbs.len - 1]) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    // if |a| <= |b|
-    pub fn lessThanEqAbs(a: &const BigInt, b: &const BigInt) bool {
-        if (a.limbs.len < b.limbs.len) {
-            return true;
-        } else if (a.limbs.len == b.limbs.len and a.limbs.items[a.limbs.len - 1] <= b.limbs.items[b.limbs.len - 1]) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    // if a >= b
-    pub fn greaterThanEq(a: &const BigInt, b: &const BigInt) bool {
-        if (a.positive != b.positive) {
-            return a.positive;
-        } else {
-            const r = greaterThanEqAbs(a, b);
-            return if (a.positive) r else !r;
-        }
-    }
-
-    // if a <= b
-    pub fn lessThanEq(a: &const BigInt, b: &const BigInt) bool {
-        if (a.positive != b.positive) {
-            return !a.positive;
-        } else {
-            const r = lessThanEqAbs(a, b);
-            return if (a.positive) r else !r;
-        }
+        return cmp(a, b) == 0;
     }
 
     // Normalize for a possible single carry digit.
@@ -298,29 +287,27 @@ pub const BigInt = struct {
     }
 
     // Knuth 4.3.1, Algorithm A.
-    //
-    // Returns the length of rop.
-    fn lladd(rop: []Limb, op1: []const Limb, op2: []const Limb) void {
-        debug.assert(op1.len != 0 and op2.len != 0);
-        debug.assert(op1.len >= op2.len);
-        debug.assert(rop.len >= op1.len + 1);
+    fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
+        debug.assert(a.len != 0 and b.len != 0);
+        debug.assert(a.len >= b.len);
+        debug.assert(r.len >= a.len + 1);
 
         var i: usize = 0;
         var carry: Limb = 0;
 
-        while (i < op2.len) : (i += 1) {
+        while (i < b.len) : (i += 1) {
             // TODO: @addWithOverflow
-            rop[i] = addLimbWithCarry(op1[i], op2[i], &carry);
+            r[i] = addLimbWithCarry(a[i], b[i], &carry);
         }
 
-        while (i < op1.len) : (i += 1) {
-            rop[i] = addLimbWithCarry(op1[i], 0, &carry);
+        while (i < a.len) : (i += 1) {
+            r[i] = addLimbWithCarry(a[i], 0, &carry);
         }
 
-        rop[i] = carry;
+        r[i] = carry;
     }
 
-    // rop = op1 - op2
+    // r = a - b
     pub fn sub(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
         if (a.positive != b.positive) {
             if (a.positive) {
@@ -332,7 +319,7 @@ pub const BigInt = struct {
                 r.positive = false;
             }
         } else {
-            if (a.greaterThanEqAbs(b)) {
+            if (a.cmp(b) >= 0) {
                 try r.limbs.ensureCapacity(a.limbs.len + 1);
                 llsub(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
                 r.norm1(a.limbs.len);
@@ -378,12 +365,23 @@ pub const BigInt = struct {
         debug.assert(borrow == 0);
     }
 
-    // r = a * b
-    pub fn mul(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
-        // TODO: Would thread-local temporary globals be useful here?
-        if (r == a or r == b) {
-            @panic("TODO: mul with aliasing parameters");
+    // rma = a * b
+    //
+    // For greatest efficiency, ensure rma does not alias a or b.
+    pub fn mul(rma: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+        var r = rma;
+        var aliased = rma == a or rma == b;
+
+        var sr: BigInt = undefined;
+        if (aliased) {
+            sr = try BigInt.initCapacity(rma.limbs.allocator, a.limbs.len + b.limbs.len);
+            r = &sr;
+            aliased = true;
         }
+        defer if (aliased) {
+            r.swap(rma);
+            rma.deinit();
+        };
 
         try r.limbs.ensureCapacity(a.limbs.len + b.limbs.len);
 
@@ -453,8 +451,6 @@ pub const BigInt = struct {
     }
 
     // Knuth 4.3.1, Exercise 16.
-    //
-    // Returns the length of rop.
     fn lldiv1(quo: []Limb, rem: &Limb, a: []const Limb, b: Limb) void {
         debug.assert(a.len > 1 or a[0] > b);
         debug.assert(quo.len >= a.len);
@@ -474,7 +470,7 @@ pub const BigInt = struct {
     fn lldivN(quo: []Limb, rem: []Limb, a: []const Limb, b: []const Limb) void {
         debug.assert(a.ptr != b.ptr and a.ptr != quo.ptr and b.ptr != quo.ptr);
         debug.assert(a.len >= b.len);
-        debug.assert(b.len > 1);
+        debug.assert(b.len >= 2);
 
         @panic("TODO: implement multi-limb division");
     }
@@ -679,12 +675,17 @@ test "bigint compare" {
     var a = try BigInt.initSet(al, -11);
     var b = try BigInt.initSet(al, 10);
 
-    debug.assert(a.greaterThanEqAbs(&b));
-    debug.assert(!a.greaterThanEq(&b));
-
-    debug.assert(!a.lessThanEqAbs(&b));
-    debug.assert(a.lessThanEq(&b));
+    debug.assert(a.cmpAbs(&b) == 1);
+    debug.assert(a.cmp(&b) == -1);
 }
+
+test "bigint compare multi-limb" {
+    var a = try BigInt.initSet(al, -0xffffeeeeffffeeeeffffeeeef);
+    var b = try BigInt.initSet(al, 0xffffeeeeffffeeeeffffeeeee);
+
+    debug.assert(a.cmpAbs(&b) == 1);
+    debug.assert(a.cmp(&b) == -1);
+ }
 
 test "bigint equality" {
     var a = try BigInt.initSet(al, 0xffffffff1);
@@ -804,6 +805,32 @@ test "bigint mul multi-multi" {
     debug.assert((try c.to(u128)) == 0xa0e62b70b5fb40848943feb9742ee9a5);
 }
 
+test "bigint mul alias r with a" {
+    var a = try BigInt.initSet(al, 0xffffffff);
+    var b = try BigInt.initSet(al, 2);
+
+    try a.mul(&a, &b);
+
+    debug.assert((try a.to(u64)) == 0x1fffffffe);
+}
+
+test "bigint mul alias r with b" {
+    var a = try BigInt.initSet(al, 0xffffffff);
+    var b = try BigInt.initSet(al, 2);
+
+    try a.mul(&b, &a);
+
+    debug.assert((try a.to(u64)) == 0x1fffffffe);
+}
+
+test "bigint mul alias r with a and b" {
+    var a = try BigInt.initSet(al, 0xffffffff);
+
+    try a.mul(&a, &a);
+
+    debug.assert((try a.to(u128)) == 0xfffffffe00000001);
+}
+
 test "bigint div single-single no rem" {
     var a = try BigInt.initSet(al, 50);
     var b = try BigInt.initSet(al, 5);
@@ -829,20 +856,52 @@ test "bigint div single-single with rem" {
 }
 
 test "bigint div multi-single no rem" {
-    // TODO: simple
+    var a = try BigInt.initSet(al, 0xffffeeeeddddcccc);
+    var b = try BigInt.initSet(al, 34);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u64)) == 0x787870706868606);
+    debug.assert((try r.to(u64)) == 0);
 }
 
 test "bigint div multi-single with rem" {
-    // TODO: simple
+    var a = try BigInt.initSet(al, 0xffffeeeeddddcccf);
+    var b = try BigInt.initSet(al, 34);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u64)) == 0x787870706868606);
+    debug.assert((try r.to(u64)) == 3);
 }
 
-test "bigint div multi-multi no rem" {
-    // TODO: hard
-}
-
-test "bigint div multi-mutli with rem" {
-    // TODO: hard
-}
+//test "bigint div multi-multi no rem" {
+//    var a = try BigInt.initSet(al, 0xffffeeeeddddccccbbbbaaaa9999);
+//    var b = try BigInt.initSet(al, 0x8888777766665555);
+//
+//    var q = try BigInt.init(al);
+//    var r = try BigInt.init(al);
+//    try BigInt.div(&q, &r, &a, &b);
+//
+//    debug.assert((try q.to(u64)) == 0x1e001c001f80);
+//    debug.assert((try r.to(u64)) == 0x12e6f94cc72aa419);
+//}
+//
+//test "bigint div multi-mutli with rem" {
+//    var a = try BigInt.initSet(al, 0xffffeeeeddddb9e5c26ee37ff580);
+//    var b = try BigInt.initSet(al, 0x8888777766665555);
+//
+//    var q = try BigInt.init(al);
+//    var r = try BigInt.init(al);
+//    try BigInt.div(&q, &r, &a, &b);
+//
+//    debug.assert((try q.to(u64)) == 0x1e001c001f80);
+//    debug.assert((try r.to(u64)) == 0);
+//}
 
 test "bigint shift-right single" {
     var a = try BigInt.initSet(al, 0xffff0000);
