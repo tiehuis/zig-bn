@@ -5,9 +5,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
-const Allocator = std.mem.Allocator;
+const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 
 const TypeId = builtin.TypeId;
@@ -79,8 +80,8 @@ pub const BigInt = struct {
     }
 
     pub fn swap(self: &BigInt, other: &BigInt) void {
-        std.mem.swap(bool, &self.positive, &other.positive);
-        std.mem.swap(ArrayList(Limb), &self.limbs, &other.limbs);
+        mem.swap(bool, &self.positive, &other.positive);
+        mem.swap(ArrayList(Limb), &self.limbs, &other.limbs);
     }
 
     pub fn dump(self: &const BigInt) void {
@@ -324,13 +325,6 @@ pub const BigInt = struct {
         }
     }
 
-    // a + b + *carry, sets carry to overflow bits
-    fn addLimbWithCarry(a: Limb, b: Limb, carry: &Limb) Limb {
-        const result = DoubleLimb(a) + DoubleLimb(b) + DoubleLimb(*carry);
-        *carry = @truncate(Limb, result >> Limb.bit_count);
-        return @truncate(Limb, result);
-    }
-
     // Knuth 4.3.1, Algorithm A.
     fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
         @setRuntimeSafety(false);
@@ -342,12 +336,14 @@ pub const BigInt = struct {
         var carry: Limb = 0;
 
         while (i < b.len) : (i += 1) {
-            // TODO: @addWithOverflow
-            r[i] = @inlineCall(addLimbWithCarry, a[i], b[i], &carry);
+            var c: Limb = 0;
+            c += Limb(@addWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += Limb(@addWithOverflow(Limb, r[i], carry, &r[i]));
+            carry = c;
         }
 
         while (i < a.len) : (i += 1) {
-            r[i] = @inlineCall(addLimbWithCarry, a[i], 0, &carry);
+            carry = Limb(@addWithOverflow(Limb, a[i], carry, &r[i]));
         }
 
         r[i] = carry;
@@ -379,15 +375,6 @@ pub const BigInt = struct {
         }
     }
 
-    // a - b - *borrow, sets borrow to underflow bits
-    pub fn subLimbWithBorrow(a: Limb, b: Limb, borrow: &Limb) Limb {
-        const base = DoubleLimb(1) << Limb.bit_count;
-        const result = base + DoubleLimb(a) - DoubleLimb(b) - DoubleLimb(*borrow);
-        const hi = @truncate(Limb, result >> Limb.bit_count);
-        *borrow = Limb(hi == 0);
-        return @truncate(Limb, result);
-    }
-
     // Knuth 4.3.1, Algorithm S.
     //
     // Returns the length of rop.
@@ -401,12 +388,14 @@ pub const BigInt = struct {
         var borrow: Limb = 0;
 
         while (i < b.len) : (i += 1) {
-            // TODO: @subWithOverflow
-            r[i] = @inlineCall(subLimbWithBorrow, a[i], b[i], &borrow);
+            var c: Limb = 0;
+            c += Limb(@subWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += Limb(@subWithOverflow(Limb, r[i], borrow, &r[i]));
+            borrow = c;
         }
 
         while (i < a.len) : (i += 1) {
-            r[i] = @inlineCall(subLimbWithBorrow, a[i], 0, &borrow);
+            borrow = Limb(@subWithOverflow(Limb, a[i], borrow, &r[i]));
         }
 
         debug.assert(borrow == 0);
@@ -457,7 +446,7 @@ pub const BigInt = struct {
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + b.len);
 
-        mem.set(u32, r[0 .. a.len + b.len], 0);
+        mem.set(Limb, r[0 .. a.len + b.len], 0);
 
         var i: usize = 0;
         while (i < a.len) : (i += 1) {
@@ -575,7 +564,7 @@ pub const BigInt = struct {
         }
 
         r[limb_shift - 1] = carry;
-        mem.set(u32, r[0 .. limb_shift - 1], 0);
+        mem.set(Limb, r[0 .. limb_shift - 1], 0);
     }
 
     // r = a >> shift
@@ -692,7 +681,6 @@ pub const BigInt = struct {
     }
 };
 
-const debug = std.debug;
 var al = debug.global_allocator;
 
 test "bigint comptime_int set" {
