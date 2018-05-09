@@ -40,6 +40,20 @@ fib-rs:  0:00.83 real, 0.83 user, 0.00 sys
 ```
 
 ```
+$ make run-fac
+------ factorial (llmul, lladd) 
+fac-zig: 0:01.85 real, 1.18 user, 0.66 sys
+
+fac-c:   0:00.18 real, 0.18 user, 0.00 sys
+
+fac-go:  0:00.20 real, 0.21 user, 0.00 sys
+
+fac-py:  0:00.50 real, 0.46 user, 0.03 sys
+
+fac-rs:  0:00.52 real, 0.52 user, 0.00 sys
+```
+
+```
 $ make system
 
 Architecture:        x86_64

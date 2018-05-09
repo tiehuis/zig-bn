@@ -15,6 +15,4 @@ fn main() {
         f = &f * &c;
         c = &c + &one;
     }
-
-    print!("{}", f);
 }

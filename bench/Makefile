@@ -6,15 +6,15 @@ build: build-fac build-fib
 
 run-fac: build-fac
 	@printf -- "------ factorial (llmul, lladd) \n"
-	@printf   "fac-zig: " && $(TIME) ./fac-zig | md5sum
+	@printf   "fac-zig: " && $(TIME) ./fac-zig
 
-	@printf "\nfac-c:   " && $(TIME) ./fac-c   | md5sum
+	@printf "\nfac-c:   " && $(TIME) ./fac-c
 
-	@printf "\nfac-go:  " && $(TIME) ./fac-go  | md5sum
+	@printf "\nfac-go:  " && $(TIME) ./fac-go
 
-	@printf "\nfac-py:  " && $(TIME) ./fac-py  | md5sum
+	@printf "\nfac-py:  " && $(TIME) ./fac-py
 
-	@printf "\nfac-rs:  " && $(TIME) ./fac-rs | md5sum
+	@printf "\nfac-rs:  " && $(TIME) ./fac-rs
 
 build-fac: fac-zig fac-c fac-go fac-py fac-rs
 
