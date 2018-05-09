@@ -1,0 +1,8 @@
+zig-cache
+target
+
+fib-*
+!fib-py
+
+fac-*
+!fac-py

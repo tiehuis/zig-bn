@@ -333,6 +333,7 @@ pub const BigInt = struct {
 
     // Knuth 4.3.1, Algorithm A.
     fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len != 0 and b.len != 0);
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + 1);
@@ -342,11 +343,11 @@ pub const BigInt = struct {
 
         while (i < b.len) : (i += 1) {
             // TODO: @addWithOverflow
-            r[i] = addLimbWithCarry(a[i], b[i], &carry);
+            r[i] = @inlineCall(addLimbWithCarry, a[i], b[i], &carry);
         }
 
         while (i < a.len) : (i += 1) {
-            r[i] = addLimbWithCarry(a[i], 0, &carry);
+            r[i] = @inlineCall(addLimbWithCarry, a[i], 0, &carry);
         }
 
         r[i] = carry;
@@ -391,6 +392,7 @@ pub const BigInt = struct {
     //
     // Returns the length of rop.
     fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len != 0 and b.len != 0);
         debug.assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
         debug.assert(r.len >= a.len);
@@ -400,11 +402,11 @@ pub const BigInt = struct {
 
         while (i < b.len) : (i += 1) {
             // TODO: @subWithOverflow
-            r[i] = subLimbWithBorrow(a[i], b[i], &borrow);
+            r[i] = @inlineCall(subLimbWithBorrow, a[i], b[i], &borrow);
         }
 
         while (i < a.len) : (i += 1) {
-            r[i] = subLimbWithBorrow(a[i], 0, &borrow);
+            r[i] = @inlineCall(subLimbWithBorrow, a[i], 0, &borrow);
         }
 
         debug.assert(borrow == 0);
@@ -441,7 +443,7 @@ pub const BigInt = struct {
     }
 
     // a + b * c + *carry, sets carry to the overflow bits
-    pub fn addMulWithCarry(a: Limb, b: Limb, c: Limb, carry: &Limb) Limb {
+    pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: &Limb) Limb {
         const result = DoubleLimb(a) + DoubleLimb(b) * DoubleLimb(c) + DoubleLimb(*carry);
         *carry = @truncate(Limb, result >> Limb.bit_count);
         return @truncate(Limb, result);
@@ -451,6 +453,7 @@ pub const BigInt = struct {
     //
     // r MUST NOT alias any of a or b.
     fn llmul(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + b.len);
 
@@ -461,7 +464,7 @@ pub const BigInt = struct {
             var carry: Limb = 0;
             var j: usize = 0;
             while (j < b.len) : (j += 1) {
-                r[i+j] = addMulWithCarry(r[i+j], a[i], b[j], &carry);
+                r[i+j] = @inlineCall(addMulLimbWithCarry, r[i+j], a[i], b[j], &carry);
             }
             r[i+j] = carry;
         }
@@ -508,6 +511,7 @@ pub const BigInt = struct {
 
     // Knuth 4.3.1, Exercise 16.
     fn lldiv1(quo: []Limb, rem: &Limb, a: []const Limb, b: Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len > 1 or a[0] > b);
         debug.assert(quo.len >= a.len);
 
@@ -552,6 +556,7 @@ pub const BigInt = struct {
     }
 
     fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len >= 1);
         debug.assert(r.len >= a.len + (shift / Limb.bit_count) + 1);
 
@@ -565,7 +570,7 @@ pub const BigInt = struct {
             const dst_i = src_i + limb_shift;
 
             const src_digit = a[src_i];
-            r[dst_i] = carry | math.shr(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            r[dst_i] = carry | @inlineCall(math.shr, Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
             carry = (src_digit << interior_limb_shift);
         }
 
@@ -589,6 +594,7 @@ pub const BigInt = struct {
     }
 
     fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
+        @setRuntimeSafety(false);
         debug.assert(a.len >= 1);
         debug.assert(r.len >= a.len - (shift / Limb.bit_count));
 
@@ -603,7 +609,7 @@ pub const BigInt = struct {
 
             const src_digit = a[src_i];
             r[dst_i] = carry | (src_digit >> interior_limb_shift);
-            carry = math.shl(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            carry = @inlineCall(math.shl, Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
         }
     }
 
@@ -621,6 +627,7 @@ pub const BigInt = struct {
     }
 
     fn llor(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(r.len >= a.len);
         debug.assert(a.len >= b.len);
 
@@ -647,6 +654,7 @@ pub const BigInt = struct {
     }
 
     fn lland(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(r.len >= b.len);
         debug.assert(a.len >= b.len);
 
@@ -670,6 +678,7 @@ pub const BigInt = struct {
     }
 
     fn llxor(r: []Limb, a: []const Limb, b: []const Limb) void {
+        @setRuntimeSafety(false);
         debug.assert(r.len >= a.len);
         debug.assert(a.len >= b.len);
 

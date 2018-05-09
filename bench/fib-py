@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+
+target = 100000
+
+def main():
+    f0 = 1
+    f1 = 1
+
+    for i in range(target):
+        f0 = f0 + f1
+        f1 = f0 - f1
+
+    # print(f0, end='')
+
+if __name__ == "__main__":
+    main()

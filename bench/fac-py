@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+
+target = 50000
+
+def main():
+    f = 1
+    c = 1
+
+    for i in range(target):
+        f *= c
+        c += 1
+
+    print(f, end='')
+
+if __name__ == "__main__":
+    main()
