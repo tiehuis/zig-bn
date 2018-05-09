@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-target = 100000
+target = 200000
 
 def main():
     f0 = 1

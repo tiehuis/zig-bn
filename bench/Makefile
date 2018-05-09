@@ -43,9 +43,8 @@ run-fib: build-fib
 	@printf "\nfib-py:  " && $(TIME) ./fib-py  | md5sum
 
 	@printf "\nfib-rs:  " && $(TIME) ./fib-rs
-	@printf   " debug:  " && $(TIME) ./fib-rs-debug  | md5sum
 
-build-fib: fib-zig fib-zig-debug fib-c fib-go fib-py fib-rs fib-rs-debug
+build-fib: fib-zig fib-zig-debug fib-c fib-go fib-py fib-rs
 
 fib-zig: fib.zig
 	zig build-exe fib.zig --library c --output fib-zig --release-fast
@@ -62,6 +61,7 @@ fib-go: fib.go
 fib-rs: crate-fib-rs/src/main.rs
 	cd crate-fib-rs && cargo build --release && cp target/release/fib-rs ..
 
+# ignored for now; too slow.
 fib-rs-debug: crate-fib-rs/src/main.rs
 	cd crate-fib-rs && cargo build && cp target/debug/fib-rs ../fib-rs-debug
 

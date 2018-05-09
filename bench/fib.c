@@ -1,6 +1,6 @@
 #include <gmp.h>
 
-#define target 100000
+#define target 200000
 
 int main(void)
 {

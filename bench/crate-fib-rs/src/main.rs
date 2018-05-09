@@ -4,7 +4,7 @@ extern crate num_traits;
 use num_bigint::BigInt;
 use num_traits::One;
 
-const TARGET: u32 = 100000;
+const TARGET: u32 = 200000;
 
 fn main() {
     let mut f0: BigInt = One::one();

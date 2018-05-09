@@ -1,7 +1,7 @@
 const std = @import("std");
 const BigInt = @import("../bigint.zig").BigInt;
 
-const target = 100000;
+const target = 200000;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();

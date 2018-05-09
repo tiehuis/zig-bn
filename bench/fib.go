@@ -4,7 +4,7 @@ import (
 	"math/big"
 )
 
-const target = 100000
+const target = 200000
 
 func main() {
 	f0 := new(big.Int)
