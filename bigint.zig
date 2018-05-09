@@ -1,11 +1,11 @@
 // TODO:
-// - Handle zero cases everywhere required (e.g. add).
 // - multi-limb division
 // - confirm what behavior we want for shift on negative values
 // - replace DoubleLimb requirement with @xxxWithOverflow builtins.
 
 const std = @import("std");
 const builtin = @import("builtin");
+const math = std.math;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -13,7 +13,7 @@ const ArrayList = std.ArrayList;
 const TypeId = builtin.TypeId;
 
 const Limb = u32;
-const Log2Limb = std.math.Log2Int(Limb);
+const Log2Limb = math.Log2Int(Limb);
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 
 pub const BigInt = struct {
@@ -69,6 +69,13 @@ pub const BigInt = struct {
                 break :block limbs;
             },
         };
+    }
+
+    pub fn copy(self: &BigInt, other: &const BigInt) !void {
+        self.positive = other.positive;
+        self.limbs.len = 0;
+        self.limbs.shrink(0);
+        try self.limbs.appendSlice(other.limbs.toSliceConst());
     }
 
     pub fn swap(self: &BigInt, other: &BigInt) void {
@@ -170,6 +177,35 @@ pub const BigInt = struct {
         }
     }
 
+    pub fn toString(self: &const BigInt, allocator: &Allocator) ![]const u8 {
+        var digits = ArrayList(u8).init(allocator);
+        defer digits.deinit();
+
+        if (self.eqZero()) {
+            try digits.append('0');
+            return digits.toOwnedSlice();
+        }
+
+        var q = try self.clone();
+        q.positive = true;
+        var r = try BigInt.init(allocator);
+        var b = try BigInt.initSet(allocator, 10);
+
+        while (!q.eqZero()) {
+            try BigInt.div(&q, &r, &q, &b);
+            // TODO: to(T) where T < Limb.bit_count seems to have issues
+            try digits.append('0' + u8(try r.to(u32)));
+        }
+
+        if (!self.positive) {
+            try digits.append('-');
+        }
+
+        var s = digits.toOwnedSlice();
+        mem.reverse(u8, s);
+        return s;
+    }
+
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: &const BigInt, b: &const BigInt) i8 {
         if (a.limbs.len < b.limbs.len) {
@@ -224,6 +260,7 @@ pub const BigInt = struct {
     //
     // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
     // [1, 2, 3, 4, 5] -> [1, 2, 3, 4]
+    // [0]             -> [0]
     fn norm1(r: &BigInt, length: usize) void {
         std.debug.assert(length > 0);
 
@@ -237,9 +274,9 @@ pub const BigInt = struct {
 
     // Normalize a possible sequence of leading zeros.
     //
-    // [1, 2, 3, 4, 0] => [1, 2, 3, 4]
-    // [1, 2, 0, 0, 0] => [1, 2]
-    // [0, 0, 0, 0, 0] => [0]
+    // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
+    // [1, 2, 0, 0, 0] -> [1, 2]
+    // [0, 0, 0, 0, 0] -> [0]
     fn normN(r: &BigInt, length: usize) void {
         std.debug.assert(length > 0);
 
@@ -256,6 +293,14 @@ pub const BigInt = struct {
 
     // r = a + b
     pub fn add(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
+        if (a.eqZero()) {
+            try r.copy(b);
+            return;
+        } else if (b.eqZero()) {
+            try r.copy(a);
+            return;
+        }
+
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
@@ -308,7 +353,7 @@ pub const BigInt = struct {
     }
 
     // r = a - b
-    pub fn sub(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
+    pub fn sub(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
@@ -322,11 +367,11 @@ pub const BigInt = struct {
             if (a.cmp(b) >= 0) {
                 try r.limbs.ensureCapacity(a.limbs.len + 1);
                 llsub(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-                r.norm1(a.limbs.len);
+                r.normN(a.limbs.len);
             } else {
                 try r.limbs.ensureCapacity(b.limbs.len + 1);
                 llsub(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-                r.norm1(b.limbs.len);
+                r.normN(b.limbs.len);
             }
 
             r.positive = a.positive;
@@ -423,9 +468,20 @@ pub const BigInt = struct {
     }
 
     // quo = a / b (rem rem)
-    pub fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
-        if (b.limbs.len == 1 and b.limbs.items[0] == 0) {
+    pub fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+        if (b.eqZero()) {
             @panic("division by zero");
+        }
+
+        if (a.cmpAbs(b) < 0) {
+            // quo may alias a so handle rem first
+            try rem.copy(a);
+            rem.positive = a.positive == b.positive;
+
+            quo.positive = true;
+            quo.limbs.len = 1;
+            quo.limbs.items[0] = 0;
+            return;
         }
 
         if (b.limbs.len == 1) {
@@ -458,9 +514,21 @@ pub const BigInt = struct {
         *rem = 0;
         for (a) |_, ri| {
             const i = a.len - ri - 1;
-            const double_limb = ((DoubleLimb(*rem) << Limb.bit_count) - *rem) | a[i];
-            quo[i] = Limb(@divFloor(double_limb, b));
-            *rem = Limb(@mod(double_limb, b));
+            const pdiv = ((DoubleLimb(*rem) << Limb.bit_count) | a[i]);
+
+            if (pdiv == 0) {
+                quo[i] = 0;
+                *rem = 0;
+            } else if (pdiv < b) {
+                quo[i] = 0;
+                *rem = @truncate(Limb, pdiv);
+            } else if (pdiv == b) {
+                quo[i] = 1;
+                *rem = 0;
+            } else {
+                quo[i] = @truncate(Limb, @divFloor(pdiv, b));
+                *rem = @truncate(Limb, pdiv - (quo[i] *% b));
+            }
         }
     }
 
@@ -497,7 +565,7 @@ pub const BigInt = struct {
             const dst_i = src_i + limb_shift;
 
             const src_digit = a[src_i];
-            r[dst_i] = carry | std.math.shr(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            r[dst_i] = carry | math.shr(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
             carry = (src_digit << interior_limb_shift);
         }
 
@@ -535,7 +603,7 @@ pub const BigInt = struct {
 
             const src_digit = a[src_i];
             r[dst_i] = carry | (src_digit >> interior_limb_shift);
-            carry = std.math.shl(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            carry = math.shl(Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
         }
     }
 
@@ -638,6 +706,33 @@ test "bigint comptime_int to" {
     const a = try BigInt.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
 
     debug.assert((try a.to(u128)) == 0xefffffff00000001eeeeeeefaaaaaaab);
+}
+
+test "bigint string to" {
+    const a = try BigInt.initSet(al, 120317241209124781241290847124);
+
+    const as = try a.toString(al);
+    const es = "120317241209124781241290847124";
+
+    debug.assert(mem.eql(u8, as, es));
+}
+
+test "bigint neg string to" {
+    const a = try BigInt.initSet(al, -123907434);
+
+    const as = try a.toString(al);
+    const es = "-123907434";
+
+    debug.assert(mem.eql(u8, as, es));
+}
+
+test "bigint zero string to" {
+    const a = try BigInt.initSet(al, 0);
+
+    const as = try a.toString(al);
+    const es = "0";
+
+    debug.assert(mem.eql(u8, as, es));
 }
 
 test "bigint clone" {
@@ -745,6 +840,16 @@ test "bigint add multi-multi" {
     debug.assert((try c.to(u128)) == 0x1eeeeeeee1f1f1f1e);
 }
 
+test "bigint add zero-zero" {
+    var a = try BigInt.initSet(al, 0);
+    var b = try BigInt.initSet(al, 0);
+
+    var c = try BigInt.init(al);
+    try c.add(&a, &b);
+
+    debug.assert((try c.to(u32)) == 0);
+}
+
 test "bigint sub single-single" {
     var a = try BigInt.initSet(al, 50);
     var b = try BigInt.initSet(al, 5);
@@ -773,6 +878,16 @@ test "bigint sub multi-multi" {
     try c.sub(&a, &b);
 
     debug.assert((try c.to(u128)) == 0x444444444444444444444444);
+}
+
+test "bigint sub equal" {
+    var a = try BigInt.initSet(al, 0xefefefefefefefefefefefef);
+    var b = try BigInt.initSet(al, 0xefefefefefefefefefefefef);
+
+    var c = try BigInt.init(al);
+    try c.sub(&a, &b);
+
+    debug.assert((try c.to(u32)) == 0);
 }
 
 test "bigint mul single-single" {
@@ -831,6 +946,26 @@ test "bigint mul alias r with a and b" {
     debug.assert((try a.to(u128)) == 0xfffffffe00000001);
 }
 
+test "bigint mul a*0" {
+    var a = try BigInt.initSet(al, 0xefefefefefefefef);
+    var b = try BigInt.initSet(al, 0);
+
+    var c = try BigInt.init(al);
+    try c.mul(&a, &b);
+
+    debug.assert((try c.to(u32)) == 0);
+}
+
+test "bigint mul 0*0" {
+    var a = try BigInt.initSet(al, 0);
+    var b = try BigInt.initSet(al, 0);
+
+    var c = try BigInt.init(al);
+    try c.mul(&a, &b);
+
+    debug.assert((try c.to(u32)) == 0);
+}
+
 test "bigint div single-single no rem" {
     var a = try BigInt.initSet(al, 50);
     var b = try BigInt.initSet(al, 5);
@@ -879,6 +1014,89 @@ test "bigint div multi-single with rem" {
     debug.assert((try r.to(u64)) == 3);
 }
 
+test "bigint div multi>2-single" {
+    var a = try BigInt.initSet(al, 0xfefefefefefefefefefefefefefefefe);
+    var b = try BigInt.initSet(al, 0xefab8);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 0x1105ed38411293cea3e33c3498da);
+    debug.assert((try r.to(u32)) == 0x3e4e);
+}
+
+test "bigint div single-single q < r" {
+    var a = try BigInt.initSet(al, 0x0078f432);
+    var b = try BigInt.initSet(al, 0x01000000);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u64)) == 0);
+    debug.assert((try r.to(u64)) == 0x0078f432);
+}
+
+test "bigint div q=0 alias" {
+    var a = try BigInt.initSet(al, 3);
+    var b = try BigInt.initSet(al, 10);
+
+    try BigInt.div(&a, &b, &a, &b);
+
+    debug.assert((try a.to(u64)) == 0);
+    debug.assert((try b.to(u64)) == 3);
+}
+
+test "bigint div multi-multi q < r" {
+    var a = try BigInt.initSet(al, 0xffffffff0078f432);
+    var b = try BigInt.initSet(al, 0xffffffff01000000);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u64)) == 0);
+    debug.assert((try r.to(u64)) == 0xffffffff0078f432);
+}
+
+// TODO: what behaviour/sign?
+//test "bigint div single-single -/+" {
+//    var a = try BigInt.initSet(al, -49);
+//    var b = try BigInt.initSet(al, 5);
+//
+//    var q = try BigInt.init(al);
+//    var r = try BigInt.init(al);
+//    try BigInt.div(&q, &r, &a, &b);
+//
+//    debug.assert((try q.to(i32)) == -10);
+//    debug.assert((try r.to(i32)) == 1);
+//}
+//
+//test "bigint div single-single +/-" {
+//    var a = try BigInt.initSet(al, 49);
+//    var b = try BigInt.initSet(al, -5);
+//
+//    var q = try BigInt.init(al);
+//    var r = try BigInt.init(al);
+//    try BigInt.div(&q, &r, &a, &b);
+//
+//    debug.assert((try q.to(i32)) == -10);
+//    debug.assert((try r.to(i32)) == -1);
+//}
+//
+//test "bigint div single-single -/-" {
+//    var a = try BigInt.initSet(al, -49);
+//    var b = try BigInt.initSet(al, -5);
+//
+//    var q = try BigInt.init(al);
+//    var r = try BigInt.init(al);
+//    try BigInt.div(&q, &r, &a, &b);
+//
+//    debug.assert((try q.to(i32)) == 10);
+//    debug.assert((try r.to(i32)) == -4);
+//}
+//
 //test "bigint div multi-multi no rem" {
 //    var a = try BigInt.initSet(al, 0xffffeeeeddddccccbbbbaaaa9999);
 //    var b = try BigInt.initSet(al, 0x8888777766665555);
