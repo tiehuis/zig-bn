@@ -1,7 +1,6 @@
 // TODO:
 // - multi-limb division
 // - confirm what behavior we want for shift on negative values
-// - replace DoubleLimb requirement with @xxxWithOverflow builtins.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -433,9 +432,31 @@ pub const BigInt = struct {
 
     // a + b * c + *carry, sets carry to the overflow bits
     pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: &Limb) Limb {
-        const result = DoubleLimb(a) + DoubleLimb(b) * DoubleLimb(c) + DoubleLimb(*carry);
-        *carry = @truncate(Limb, result >> Limb.bit_count);
-        return @truncate(Limb, result);
+        var r1: Limb = undefined;
+
+        // r1 = a + *carry
+        const c1 = Limb(@addWithOverflow(Limb, a, *carry, &r1));
+
+        // r2 = b * c
+        //
+        // We still use a DoubleLimb here since the @mulWithOverflow builtin does not
+        // return the carry and lower bits separately so we would need to perform this
+        // anyway to get the carry bits. The branch on the overflow case costs more than
+        // just computing them unconditionally and splitting.
+        //
+        // This could be a single x86 mul instruction, which stores the carry/lower in rdx:rax.
+        const bc = DoubleLimb(b) * DoubleLimb(c);
+        const r2 = @truncate(Limb, bc);
+        const c2 = @truncate(Limb, bc >> Limb.bit_count);
+
+        // r1 = r1 + r2
+        const c3 = Limb(@addWithOverflow(Limb, r1, r2, &r1));
+
+        // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
+        // c2 is at least <= @maxValue(Limb) - 2.
+        *carry = c1 + c2 + c3;
+
+        return r1;
     }
 
     // Knuth 4.3.1, Algorithm M.
