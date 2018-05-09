@@ -501,7 +501,7 @@ pub const BigInt = struct {
     // Knuth 4.3.1, Exercise 16.
     fn lldiv1(quo: []Limb, rem: &Limb, a: []const Limb, b: Limb) void {
         @setRuntimeSafety(false);
-        debug.assert(a.len > 1 or a[0] > b);
+        debug.assert(a.len > 1 or a[0] >= b);
         debug.assert(quo.len >= a.len);
 
         *rem = 0;
@@ -1033,6 +1033,18 @@ test "bigint div single-single q < r" {
 
     debug.assert((try q.to(u64)) == 0);
     debug.assert((try r.to(u64)) == 0x0078f432);
+}
+
+test "bigint div single-single q == r" {
+    var a = try BigInt.initSet(al, 10);
+    var b = try BigInt.initSet(al, 10);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u64)) == 1);
+    debug.assert((try r.to(u64)) == 0);
 }
 
 test "bigint div q=0 alias" {
