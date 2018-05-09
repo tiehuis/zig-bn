@@ -34,13 +34,13 @@ fac-rs: crate-fac-rs/src/main.rs
 run-fib: build-fib
 	@printf -- "------ fibonacci (lladd, llsub) \n"
 	@printf   "fib-zig: " && $(TIME) ./fib-zig
-	@printf   "  debug: " && $(TIME) ./fib-zig-debug  | md5sum
+	@printf   "  debug: " && $(TIME) ./fib-zig-debug
 
-	@printf "\nfib-c:   " && $(TIME) ./fib-c   | md5sum
+	@printf "\nfib-c:   " && $(TIME) ./fib-c
 
-	@printf "\nfib-go:  " && $(TIME) ./fib-go  | md5sum
+	@printf "\nfib-go:  " && $(TIME) ./fib-go
 
-	@printf "\nfib-py:  " && $(TIME) ./fib-py  | md5sum
+	@printf "\nfib-py:  " && $(TIME) ./fib-py
 
 	@printf "\nfib-rs:  " && $(TIME) ./fib-rs
 

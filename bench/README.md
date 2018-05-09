@@ -16,7 +16,7 @@ We compile Rust in debug mode to compare against Zig's debug mode. However
 beyond that, those specific measurements are largely non-representative.
 
 Avoiding safety checks in the inner-loops in our Zig implementation improves
-performance from ~2.15 -> ~1.40 for `fib-zig-debug`.
+performance from ~2.15 -> ~1.40 for `fib-zig-debug` (old 100k fib measurement).
 
 We avoid printing results to verify the output (they have been checked for fib)
 as the division code takes a disproportionally large amount of time.
@@ -26,22 +26,16 @@ as the division code takes a disproportionally large amount of time.
 ```
 $ make run-fib
 ------ fibonacci (lladd, llsub) 
-fib-zig: 0:00.19 real, 0.19 user, 0.00 sys
-  debug: 0:01.40 real, 1.40 user, 0.00 sys
-d41d8cd98f00b204e9800998ecf8427e  -
+fib-zig: 0:00.34 real, 0.34 user, 0.00 sys
+  debug: 0:01.95 real, 1.95 user, 0.00 sys
 
-fib-c:   0:00.04 real, 0.04 user, 0.00 sys
-d41d8cd98f00b204e9800998ecf8427e  -
+fib-c:   0:00.17 real, 0.16 user, 0.00 sys
 
-fib-go:  0:00.05 real, 0.05 user, 0.00 sys
-d41d8cd98f00b204e9800998ecf8427e  -
+fib-go:  0:00.20 real, 0.20 user, 0.00 sys
 
-fib-py:  0:00.21 real, 0.20 user, 0.00 sys
-d41d8cd98f00b204e9800998ecf8427e  -
+fib-py:  0:00.78 real, 0.78 user, 0.00 sys
 
-fib-rs:  0:00.20 real, 0.20 user, 0.00 sys
- debug:  0:06.79 real, 6.78 user, 0.00 sys
-d41d8cd98f00b204e9800998ecf8427e  -
+fib-rs:  0:00.83 real, 0.83 user, 0.00 sys
 ```
 
 ```
