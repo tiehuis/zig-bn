@@ -10,7 +10,7 @@ def main():
         f *= c
         c += 1
 
-    print(f, end='')
+    # print(f, end='')
 
 if __name__ == "__main__":
     main()

@@ -17,5 +17,5 @@ int main(void)
         mpz_add(c, c, one);
     }
 
-    gmp_printf("%Zd", f);
+    // gmp_printf("%Zd", f);
 }

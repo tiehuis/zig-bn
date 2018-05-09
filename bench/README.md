@@ -4,8 +4,6 @@ To run all measurements:
 make run
 ```
 
-**fac.zig is not working correctly just yet.**
-
 ## Notes
 
 Go and C use assembly functions for their low-level details which is where they
@@ -20,6 +18,9 @@ performance from ~2.15 -> ~1.40 for `fib-zig-debug` (old 100k fib measurement).
 
 We avoid printing results to verify the output (they have been checked for fib)
 as the division code takes a disproportionally large amount of time.
+
+We use base-case multiplcation for the factorial test which is a fair bit slower
+than other algorithms for those limb lengths.
 
 ## Measurements
 

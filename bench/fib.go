@@ -18,5 +18,5 @@ func main() {
 		f0.Sub(f1, f0)
 	}
 
-	// print(f1.String())
+	// fmt.Printf("%s", f1.String())
 }
