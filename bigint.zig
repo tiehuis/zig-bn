@@ -147,9 +147,19 @@ pub const BigInt = struct {
     pub fn to(self: &const BigInt, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                // TODO: check the highest set bit in the limb as well. Insufficient to check
-                // just the limb width and we may have T.bit_count !| Limb.bit_count.
-                if (self.limbs.len * Limb.bit_count > T.bit_count) {
+                // We need the extra 32-bytes due to the way the ArrayList ensureCapacity function
+                // over-allocates. Consider adding an ensureExactCapacity or some variant.
+                // This would fail on very large T right now.
+                //
+                // TODO: Use a @clz and check if it fits instead. Avoids the compare since we
+                // know any integer type is a power of two. Avoids the stack allocation as well.
+                // Can handle the signed requirement by simply checking the twos-complement.
+                var buffer: [T.bit_count / Limb.bit_count + 1 + 32]u8 = undefined;
+                var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
+                var max_t_size = BigInt.initSet(&stack.allocator, @maxValue(T)) catch unreachable;
+
+                // TODO: Minimum negative value will fail here even if okay.
+                if (self.cmp(max_t_size) > 0) {
                     return error.TargetTooSmall;
                 }
 
@@ -177,7 +187,64 @@ pub const BigInt = struct {
         }
     }
 
-    pub fn toString(self: &const BigInt, allocator: &Allocator) ![]const u8 {
+    fn charToDigit(ch: u8, base: u8) !u8 {
+        const d = switch (ch) {
+            '0' ... '9' => ch - '0',
+            'a' ... 'f' => (ch - 'a') + 0xa,
+            else => return error.InvalidCharForDigit,
+        };
+
+        return if (d < base) d else return error.DigitTooLargeForBase;
+    }
+
+    fn digitToChar(d: u8, base: u8) !u8 {
+        if (d >= base) {
+            return error.DigitTooLargeForBase;
+        }
+
+        return switch (d) {
+            0 ... 9 => '0' + d,
+            0xa ... 0xf => ('a' - 0xa) + d,
+            else => unreachable,
+        };
+    }
+
+    pub fn setString(self: &BigInt, base: u8, value: []const u8) !void {
+        if (base < 2 or base > 16) {
+            return error.InvalidBase;
+        }
+
+        var i: usize = 0;
+        if (value.len > 0 and value[0] == '-') {
+            self.positive = false;
+            i += 1;
+        } else {
+            self.positive = true;
+        }
+
+        // TODO: We need to over-allocate here due to the way ArrayList works.
+        var buffer: [64]u8 = undefined;
+        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
+        var b = try BigInt.initSet(&stack.allocator, base);
+        var p = try BigInt.init(&stack.allocator);
+
+        // TODO: Can specialize power of twos into a shift instead of a mul. Can also
+        // pre-allocate space required.
+        try self.set(0);
+        for (value[i..]) |ch| {
+            const d = try charToDigit(ch, base);
+            try p.set(d);
+
+            try self.mul(self, &b);
+            try self.add(self, &p);
+        }
+    }
+
+    pub fn toString(self: &const BigInt, allocator: &Allocator, base: u8) ![]const u8 {
+        if (base < 2 or base > 16) {
+            return error.InvalidBase;
+        }
+
         var digits = ArrayList(u8).init(allocator);
         defer digits.deinit();
 
@@ -186,15 +253,42 @@ pub const BigInt = struct {
             return digits.toOwnedSlice();
         }
 
-        var q = try self.clone();
-        q.positive = true;
-        var r = try BigInt.init(allocator);
-        var b = try BigInt.initSet(allocator, 10);
+        // Power of two: can do a single pass and use masks to extract digits.
+        if (base & (base - 1) == 0) {
+            const base_shift = math.log2_int(Limb, base);
 
-        while (!q.eqZero()) {
-            try BigInt.div(&q, &r, &q, &b);
-            // TODO: to(T) where T < Limb.bit_count seems to have issues
-            try digits.append('0' + u8(try r.to(u32)));
+            for (self.limbs.toSliceConst()) |limb| {
+                var shift: usize = 0;
+                while (shift < Limb.bit_count) : (shift += base_shift) {
+                    const r = u8((limb >> Log2Limb(shift)) & Limb(base - 1));
+                    const ch = try digitToChar(r, base);
+                    try digits.append(ch);
+                }
+            }
+
+            while (true) {
+                // always will have a non-zero digit somewhere
+                const c = digits.pop();
+                if (c != '0') {
+                    digits.append(c) catch unreachable;
+                    break;
+                }
+            }
+        }
+        // Non power-of-two: need to perform slow division.
+        //
+        // TODO: Combine divisions and perform sub-divisions using machine-word.
+        else {
+            var q = try self.clone();
+            q.positive = true;
+            var r = try BigInt.init(allocator);
+            var b = try BigInt.initSet(allocator, base);
+
+            while (!q.eqZero()) {
+                try BigInt.div(&q, &r, &q, &b);
+                const ch = try digitToChar(try r.to(u8), base);
+                try digits.append(ch);
+            }
         }
 
         if (!self.positive) {
@@ -294,10 +388,14 @@ pub const BigInt = struct {
     // r = a + b
     pub fn add(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
         if (a.eqZero()) {
-            try r.copy(b);
+            if (r != b) {
+                try r.copy(b);
+            }
             return;
         } else if (b.eqZero()) {
-            try r.copy(a);
+            if (r != a) {
+                try r.copy(a);
+            }
             return;
         }
 
@@ -488,8 +586,10 @@ pub const BigInt = struct {
 
         if (a.cmpAbs(b) < 0) {
             // quo may alias a so handle rem first
-            try rem.copy(a);
-            rem.positive = a.positive == b.positive;
+            if (rem != a) {
+                try rem.copy(a);
+                rem.positive = a.positive == b.positive;
+            }
 
             quo.positive = true;
             quo.limbs.len = 1;
@@ -726,11 +826,42 @@ test "bigint comptime_int to" {
     debug.assert((try a.to(u128)) == 0xefffffff00000001eeeeeeefaaaaaaab);
 }
 
+test "bigint sub-limb to" {
+    const a = try BigInt.initSet(al, 10);
+
+    debug.assert((try a.to(u8)) == 10);
+}
+
+test "bigint string set" {
+    var a = try BigInt.init(al);
+    try a.setString(10, "120317241209124781241290847124");
+
+    debug.assert((try a.to(u128)) == 120317241209124781241290847124);
+}
+
 test "bigint string to" {
     const a = try BigInt.initSet(al, 120317241209124781241290847124);
 
-    const as = try a.toString(al);
+    const as = try a.toString(al, 10);
     const es = "120317241209124781241290847124";
+
+    debug.assert(mem.eql(u8, as, es));
+}
+
+test "bigint string to base 2" {
+    const a = try BigInt.initSet(al, -0b1011);
+
+    const as = try a.toString(al, 2);
+    const es = "-1011";
+
+    debug.assert(mem.eql(u8, as, es));
+}
+
+test "bigint string to base 16" {
+    const a = try BigInt.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
+
+    const as = try a.toString(al, 16);
+    const es = "efffffff00000001eeeeeeefaaaaaaab";
 
     debug.assert(mem.eql(u8, as, es));
 }
@@ -738,7 +869,7 @@ test "bigint string to" {
 test "bigint neg string to" {
     const a = try BigInt.initSet(al, -123907434);
 
-    const as = try a.toString(al);
+    const as = try a.toString(al, 10);
     const es = "-123907434";
 
     debug.assert(mem.eql(u8, as, es));
@@ -747,7 +878,7 @@ test "bigint neg string to" {
 test "bigint zero string to" {
     const a = try BigInt.initSet(al, 0);
 
-    const as = try a.toString(al);
+    const as = try a.toString(al, 10);
     const es = "0";
 
     debug.assert(mem.eql(u8, as, es));
@@ -866,6 +997,15 @@ test "bigint add zero-zero" {
     try c.add(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
+}
+
+test "bigint add alias multi-limb nonzero-zero" {
+    var a = try BigInt.initSet(al, 123123019724124);
+    var b = try BigInt.initSet(al, 0);
+
+    try a.add(&a, &b);
+
+    debug.assert((try a.to(u128)) == 123123019724124);
 }
 
 test "bigint sub single-single" {
