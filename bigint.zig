@@ -72,6 +72,10 @@ pub const BigInt = struct {
     }
 
     pub fn copy(self: &BigInt, other: &const BigInt) !void {
+        if (self == other) {
+            return;
+        }
+
         self.positive = other.positive;
         self.limbs.len = 0;
         self.limbs.shrink(0);
@@ -388,14 +392,10 @@ pub const BigInt = struct {
     // r = a + b
     pub fn add(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
         if (a.eqZero()) {
-            if (r != b) {
-                try r.copy(b);
-            }
+            try r.copy(b);
             return;
         } else if (b.eqZero()) {
-            if (r != a) {
-                try r.copy(a);
-            }
+            try r.copy(a);
             return;
         }
 
@@ -586,10 +586,8 @@ pub const BigInt = struct {
 
         if (a.cmpAbs(b) < 0) {
             // quo may alias a so handle rem first
-            if (rem != a) {
-                try rem.copy(a);
-                rem.positive = a.positive == b.positive;
-            }
+            try rem.copy(a);
+            rem.positive = a.positive == b.positive;
 
             quo.positive = true;
             quo.limbs.len = 1;
