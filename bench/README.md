@@ -10,47 +10,55 @@ Go and C use assembly functions for their low-level details which is where they
 get the majority of their performance from. Zig and Rust do not, Python uses C
 for its implementation.
 
-We compile Rust in debug mode to compare against Zig's debug mode. However
-beyond that, those specific measurements are largely non-representative.
+We use base-case multiplcation for the factorial test. This is the reason why
+we are the slowest here (although only just!).
 
-Avoiding safety checks in the inner-loops in our Zig implementation improves
-performance from ~2.15 -> ~1.40 for `fib-zig-debug` (old 100k fib measurement).
-
-We avoid printing results to verify the output (they have been checked for fib)
-as the division code takes a disproportionally large amount of time.
-
-We use base-case multiplcation for the factorial test which is a fair bit slower
-than other algorithms for those limb lengths.
+The hex printing to verify the results has negigible runtime. This a simple
+iteration over all limbs in all these implementations.
 
 ## Measurements
+
+Using 64-bit limbs on zig.
 
 ```
 $ make run-fib
 ------ fibonacci (lladd, llsub) 
-fib-zig: 0:00.34 real, 0.34 user, 0.00 sys
-  debug: 0:01.95 real, 1.95 user, 0.00 sys
+fib-zig: 0:00.35 real, 0.34 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
+  debug: 0:02.06 real, 2.05 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
 
-fib-c:   0:00.17 real, 0.16 user, 0.00 sys
+fib-c:   0:00.18 real, 0.18 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
 
-fib-go:  0:00.20 real, 0.20 user, 0.00 sys
+fib-go:  0:00.22 real, 0.21 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
 
-fib-py:  0:00.78 real, 0.78 user, 0.00 sys
+fib-py:  0:00.83 real, 0.82 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
 
-fib-rs:  0:00.83 real, 0.83 user, 0.00 sys
+fib-rs:  0:00.87 real, 0.86 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
 ```
 
 ```
 $ make run-fac
 ------ factorial (llmul, lladd) 
-fac-zig: 0:01.85 real, 1.18 user, 0.66 sys
+fac-zig: 0:00.56 real, 0.56 user, 0.00 sys
+18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-c:   0:00.18 real, 0.18 user, 0.00 sys
+fac-c:   0:00.19 real, 0.19 user, 0.00 sys
+18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-go:  0:00.20 real, 0.21 user, 0.00 sys
+fac-go:  0:00.21 real, 0.21 user, 0.00 sys
+18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-py:  0:00.50 real, 0.46 user, 0.03 sys
+fac-py:  0:00.52 real, 0.50 user, 0.01 sys
+18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-rs:  0:00.52 real, 0.52 user, 0.00 sys
+fac-rs:  0:00.55 real, 0.54 user, 0.00 sys
+18ef33d21ad1dc05a899112e6de5270f  -
+
 ```
 
 ```
