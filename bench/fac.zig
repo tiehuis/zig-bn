@@ -5,10 +5,7 @@ const target = 50000;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
-    var a = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    // TODO: Following ends in silent zero values.
-    // var allocator = std.heap.c_allocator;
-    var allocator = &a.allocator;
+    var allocator = std.heap.c_allocator;
 
     var f = try BigInt.initSet(allocator, 1);
     var c = try BigInt.initSet(allocator, 1);

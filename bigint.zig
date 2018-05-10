@@ -414,8 +414,8 @@ pub const BigInt = struct {
             aliased = true;
         }
         defer if (aliased) {
-            r.swap(rma);
-            rma.deinit();
+            rma.swap(r);
+            r.deinit();
         };
 
         try r.limbs.ensureCapacity(a.limbs.len + b.limbs.len);
