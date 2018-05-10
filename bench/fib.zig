@@ -16,6 +16,6 @@ pub fn main() !void {
         try f0.sub(&f1, &f0);
     }
 
-    // const r = try f1.toString(allocator);
-    // try stdout_file.write(r);
+    const r = try f1.toString(allocator, 16);
+    try stdout_file.write(r);
 }

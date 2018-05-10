@@ -10,7 +10,8 @@ def main():
         f0 = f0 + f1
         f1 = f0 - f1
 
-    # print(f0, end='')
+    s = hex(f0)[2:]
+    print(s, end='')
 
 if __name__ == "__main__":
     main()

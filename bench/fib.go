@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/big"
 )
 
@@ -18,5 +19,5 @@ func main() {
 		f0.Sub(f1, f0)
 	}
 
-	// fmt.Printf("%s", f1.String())
+	fmt.Printf("%x", f1)
 }

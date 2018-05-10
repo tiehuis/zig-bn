@@ -15,4 +15,6 @@ fn main() {
         f = &f * &c;
         c = &c + &one;
     }
+
+    print!("{:x}", f);
 }

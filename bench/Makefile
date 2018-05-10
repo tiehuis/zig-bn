@@ -6,15 +6,15 @@ build: build-fac build-fib
 
 run-fac: build-fac
 	@printf -- "------ factorial (llmul, lladd) \n"
-	@printf   "fac-zig: " && $(TIME) ./fac-zig
+	@printf   "fac-zig: " && $(TIME) ./fac-zig | md5sum
 
-	@printf "\nfac-c:   " && $(TIME) ./fac-c
+	@printf "\nfac-c:   " && $(TIME) ./fac-c   | md5sum
 
-	@printf "\nfac-go:  " && $(TIME) ./fac-go
+	@printf "\nfac-go:  " && $(TIME) ./fac-go  | md5sum
 
-	@printf "\nfac-py:  " && $(TIME) ./fac-py
+	@printf "\nfac-py:  " && $(TIME) ./fac-py  | md5sum
 
-	@printf "\nfac-rs:  " && $(TIME) ./fac-rs
+	@printf "\nfac-rs:  " && $(TIME) ./fac-rs  | md5sum
 
 build-fac: fac-zig fac-c fac-go fac-py fac-rs
 
@@ -33,16 +33,16 @@ fac-rs: crate-fac-rs/src/main.rs
 
 run-fib: build-fib
 	@printf -- "------ fibonacci (lladd, llsub) \n"
-	@printf   "fib-zig: " && $(TIME) ./fib-zig
-	@printf   "  debug: " && $(TIME) ./fib-zig-debug
+	@printf   "fib-zig: " && $(TIME) ./fib-zig | md5sum
+	@printf   "  debug: " && $(TIME) ./fib-zig-debug | md5sum
 
-	@printf "\nfib-c:   " && $(TIME) ./fib-c
+	@printf "\nfib-c:   " && $(TIME) ./fib-c| md5sum
 
-	@printf "\nfib-go:  " && $(TIME) ./fib-go
+	@printf "\nfib-go:  " && $(TIME) ./fib-go  | md5sum
 
-	@printf "\nfib-py:  " && $(TIME) ./fib-py
+	@printf "\nfib-py:  " && $(TIME) ./fib-py  | md5sum
 
-	@printf "\nfib-rs:  " && $(TIME) ./fib-rs
+	@printf "\nfib-rs:  " && $(TIME) ./fib-rs  | md5sum
 
 build-fib: fib-zig fib-zig-debug fib-c fib-go fib-py fib-rs
 

@@ -13,5 +13,5 @@ int main(void)
         mpz_sub(f0, f1, f0);
     }
 
-    // gmp_printf("%Zd", f1);
+    gmp_printf("%Zx", f1);
 }

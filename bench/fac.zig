@@ -17,6 +17,6 @@ pub fn main() !void {
         try c.add(&c, &one);
     }
 
-    // const r = try f.toString(allocator);
-    // try stdout_file.write(r);
+    const r = try f.toString(allocator, 16);
+    try stdout_file.write(r);
 }
