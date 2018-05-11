@@ -1,5 +1,5 @@
 const std = @import("std");
-const BigInt = @import("../bigint.zig").BigInt;
+const BigInt = @import("../../bigint.zig").BigInt;
 
 const target = 50000;
 
