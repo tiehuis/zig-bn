@@ -1,5 +1,5 @@
 // TODO:
-// - multi-limb division
+// - multi-limb division on u64 sized-limb
 // - confirm what behavior we want for shift on negative values
 
 const std = @import("std");
@@ -12,7 +12,7 @@ const ArrayList = std.ArrayList;
 
 const TypeId = builtin.TypeId;
 
-const Limb = usize;
+const Limb = u32;
 const Log2Limb = math.Log2Int(Limb);
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 
@@ -586,6 +586,9 @@ pub const BigInt = struct {
         if (b.eqZero()) {
             @panic("division by zero");
         }
+        if (quo == rem) {
+            @panic("quo and rem cannot be same variable");
+        }
 
         if (a.cmpAbs(b) < 0) {
             // quo may alias a so handle rem first
@@ -608,15 +611,17 @@ pub const BigInt = struct {
             rem.limbs.len = 1;
             rem.positive = true;
         } else {
-            try quo.limbs.ensureCapacity(a.limbs.len);
-            try rem.limbs.ensureCapacity(b.limbs.len);
+            // x and y are modified during division
+            var x = try a.clone();
+            defer x.deinit();
+            var y = try b.clone();
+            defer y.deinit();
 
-            lldivN(quo.limbs.items[0..], rem.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            quo.normN(a.limbs.len);
+            // x may grow one limb during normalization
+            try quo.limbs.ensureCapacity(a.limbs.len + 2);
+            try divN(quo.limbs.allocator, quo, rem, &x, &y);
+
             quo.positive = a.positive == b.positive;
-
-            rem.normN(b.limbs.len);
-            rem.positive = true;
         }
     }
 
@@ -647,15 +652,98 @@ pub const BigInt = struct {
         }
     }
 
-    // Knuth 4.3.1, Algorithm D.
+    // Handbook of Applied Cryptography, 14.20
     //
-    // quo, a and b MUST NOT alias
-    fn lldivN(quo: []Limb, rem: []Limb, a: []const Limb, b: []const Limb) void {
-        debug.assert(a.ptr != b.ptr and a.ptr != quo.ptr and b.ptr != quo.ptr);
-        debug.assert(a.len >= b.len);
-        debug.assert(b.len >= 2);
+    // x = qy + r where 0 <= r < y
+    fn divN(allocator: &Allocator, q: &BigInt, r: &BigInt, x: &BigInt, y: &BigInt) !void {
+        std.debug.assert(q.limbs.items.len >= x.limbs.len + 2);
+        std.debug.assert(x.limbs.len >= y.limbs.len);
 
-        @panic("TODO: implement multi-limb division");
+        const b1 = 1 << Limb.bit_count;
+        const b2 = 1 << (2 * Limb.bit_count);
+
+        const n = x.limbs.len - 1;
+        const t = y.limbs.len - 1;
+
+        var xl = x.limbs.items;
+        var yl = y.limbs.items;
+        var ql = q.limbs.items;
+
+        var tmp = try BigInt.init(allocator);
+        defer tmp.deinit();
+
+        // minimum bounds for step 3.2
+        try tmp.ensureCapacity(3);
+        try r.ensureCapacity(3);
+
+        // Normalize so y > b/2 (i.e. leading bit is set)
+        const norm_shift = @clz(yl[t]);
+        try x.shiftLeft(x, norm_shift);
+        try y.shiftLeft(y, norm_shift);
+
+        // 1.
+        q.limbs.len = x.limbs.len + 2;
+        mem.set(Limb, ql[0..q.limbs.len], 0);
+
+        // 2.
+        try tmp.shiftLeft(y, Limb.bit_count * (n - t));
+        while (x.cmp(&tmp) >= 0) {
+            ql[n-t] += 1;
+            try x.sub(x, tmp);
+        }
+
+        // 3.
+        var i = n;
+        while (i > t) : (i -= 1) {
+            // 3.1
+            if (xl[i] == yl[t]) {
+                ql[i-t-1] = b1 - 1;
+            } else {
+                const num = DoubleLimb(xl[i]) * b1 + DoubleLimb(xl[i-1]);
+                q.limbs.items[i-t-1] = Limb(@divFloor(num, DoubleLimb(yl[t])));
+            }
+
+            // 3.2
+            //
+            // We use r as a temporary since it is unused otherwise.
+            tmp.limbs.items[0] = xl[t-2];
+            tmp.limbs.items[1] = xl[t-1];
+            tmp.limbs.items[2] = xl[t];
+            tmp.normN(3);
+
+            while (true) {
+                // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
+                var carry: Limb = 0;
+                r.limbs.items[0] = addMulLimbWithCarry(0, yl[t-1], ql[i-t-1], &carry);
+                r.limbs.items[1] = addMulLimbWithCarry(carry, yl[t], ql[i-t-1], &carry);
+                r.limbs.items[2] = carry;
+                r.normN(3);
+
+                if (r.cmp(&tmp) <= 0) {
+                    break;
+                }
+
+                ql[i-t-1] -= 1;
+            }
+
+            // 3.3
+            try tmp.set(ql[i-t-1]);
+            try tmp.mul(&tmp, y);
+            try tmp.shiftLeft(&tmp, Limb.bit_count * (i - t - 1));
+            try x.sub(x, &tmp);
+
+            if (!x.positive) {
+                try tmp.shiftLeft(y, Limb.bit_count * (i - t - 1));
+                try x.add(x, &tmp);
+                ql[i-t-1] -= 1;
+            }
+        }
+
+        // Denormalize
+        q.normN(q.limbs.len);
+
+        try r.shiftRight(x, norm_shift);
+        r.normN(r.limbs.len);
     }
 
     // r = a << shift, in other words, r = a * 2^shift
@@ -1298,30 +1386,30 @@ test "bigint div multi-multi q < r" {
 //    debug.assert((try q.to(i32)) == 10);
 //    debug.assert((try r.to(i32)) == -4);
 //}
-//
-//test "bigint div multi-multi no rem" {
-//    var a = try BigInt.initSet(al, 0xffffeeeeddddccccbbbbaaaa9999);
-//    var b = try BigInt.initSet(al, 0x8888777766665555);
-//
-//    var q = try BigInt.init(al);
-//    var r = try BigInt.init(al);
-//    try BigInt.div(&q, &r, &a, &b);
-//
-//    debug.assert((try q.to(u64)) == 0x1e001c001f80);
-//    debug.assert((try r.to(u64)) == 0x12e6f94cc72aa419);
-//}
-//
-//test "bigint div multi-mutli with rem" {
-//    var a = try BigInt.initSet(al, 0xffffeeeeddddb9e5c26ee37ff580);
-//    var b = try BigInt.initSet(al, 0x8888777766665555);
-//
-//    var q = try BigInt.init(al);
-//    var r = try BigInt.init(al);
-//    try BigInt.div(&q, &r, &a, &b);
-//
-//    debug.assert((try q.to(u64)) == 0x1e001c001f80);
-//    debug.assert((try r.to(u64)) == 0);
-//}
+
+test "bigint div multi-multi no rem" {
+    var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
+    var b = try BigInt.initSet(al, 0x99990000111122223333);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
+}
+
+test "bigint div multi-mutli with rem" {
+    var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeedb4fec200ee3a4286361);
+    var b = try BigInt.initSet(al, 0x99990000111122223333);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.div(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    debug.assert((try r.to(u128)) == 0);
+}
 
 test "bigint shift-right single" {
     var a = try BigInt.initSet(al, 0xffff0000);
