@@ -1,10 +1,12 @@
 run:
 	make -C fib run
 	make -C fac run
+	make -C facdiv run
 
 build:
 	make -C fib build
 	make -C fac build
+	make -C facdiv build
 
 system: cpu version
 
@@ -22,5 +24,6 @@ version:
 clean:
 	make -C fib clean
 	make -C fac clean
+	make -C facdiv clean
 
 .PHONY: run build cpu clean version

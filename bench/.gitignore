@@ -6,3 +6,6 @@ fib-*
 
 fac-*
 !fac-py
+
+facdiv-*
+!facdiv-py
