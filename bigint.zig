@@ -680,8 +680,7 @@ pub const BigInt = struct {
         std.debug.assert(q.limbs.items.len >= x.limbs.len + 2);
         std.debug.assert(x.limbs.len >= y.limbs.len);
 
-        const b1 = 1 << Limb.bit_count;
-        const b2 = 1 << (2 * Limb.bit_count);
+        const b = 1 << Limb.bit_count;
 
         var xl = x.limbs.items;
         var yl = y.limbs.items;
@@ -718,9 +717,9 @@ pub const BigInt = struct {
         while (i > t) : (i -= 1) {
             // 3.1
             if (xl[i] == yl[t]) {
-                ql[i-t-1] = b1 - 1;
+                ql[i-t-1] = b - 1;
             } else {
-                const num = DoubleLimb(xl[i]) * b1 + DoubleLimb(xl[i-1]);
+                const num = DoubleLimb(xl[i]) * b + DoubleLimb(xl[i-1]);
                 q.limbs.items[i-t-1] = Limb(@divFloor(num, DoubleLimb(yl[t])));
             }
 

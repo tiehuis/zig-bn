@@ -5,6 +5,7 @@ all: run
 run: build
 	@printf -- "------ facdiv (llmul, lldiv1, divN) \n"
 	@printf   "facdiv-zig: " && $(TIME) ./facdiv-zig | md5sum
+	@printf   "     debug: " && $(TIME) ./facdiv-debug-zig | md5sum
 
 	@printf "\nfacdiv-c:   " && $(TIME) ./facdiv-c   | md5sum
 
@@ -14,10 +15,13 @@ run: build
 
 	@printf "\nfacdiv-rs:  " && $(TIME) ./facdiv-rs  | md5sum
 
-build: facdiv-zig facdiv-c facdiv-go facdiv-py facdiv-rs
+build: facdiv-zig facdiv-debug-zig facdiv-c facdiv-go facdiv-py facdiv-rs
 
 facdiv-zig: facdiv.zig
 	zig build-exe facdiv.zig --library c --output facdiv-zig --release-fast
+
+facdiv-debug-zig: facdiv.zig
+	zig build-exe facdiv.zig --library c --output facdiv-debug-zig
 
 facdiv-c: facdiv.c
 	gcc -O2 facdiv.c -lgmp -o facdiv-c
