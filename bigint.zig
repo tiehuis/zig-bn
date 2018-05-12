@@ -281,19 +281,41 @@ pub const BigInt = struct {
                 }
             }
         }
-        // Non power-of-two: need to perform slow division.
-        //
-        // TODO: Combine divisions and perform sub-divisions using machine-word.
+        // Non power-of-two: batch divisions per word size.
         else {
+            const digits_per_limb = math.log(Limb, base, @maxValue(Limb));
+            var limb_base: Limb = 1;
+            var j: usize = 0;
+            while (j < digits_per_limb) : (j += 1) {
+                limb_base *= base;
+            }
+
             var q = try self.clone();
             q.positive = true;
             var r = try BigInt.init(allocator);
-            var b = try BigInt.initSet(allocator, base);
+            var b = try BigInt.initSet(allocator, limb_base);
 
-            while (!q.eqZero()) {
+            while (q.limbs.len >= 2) {
                 try BigInt.div(&q, &r, &q, &b);
-                const ch = try digitToChar(try r.to(u8), base);
-                try digits.append(ch);
+
+                var r_word = r.limbs.items[0];
+                var i: usize = 0;
+                while (i < digits_per_limb) : (i += 1) {
+                    const ch = try digitToChar(u8(r_word % base), base);
+                    r_word /= base;
+                    try digits.append(ch);
+                }
+            }
+
+            {
+                std.debug.assert(q.limbs.len == 1);
+
+                var r_word = q.limbs.items[0];
+                while (r_word != 0) {
+                    const ch = try digitToChar(u8(r_word % base), base);
+                    r_word /= base;
+                    try digits.append(ch);
+                }
             }
         }
 
