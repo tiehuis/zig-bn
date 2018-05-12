@@ -18,47 +18,63 @@ iteration over all limbs in all these implementations.
 
 ## Measurements
 
-Using 64-bit limbs on zig.
-
 ```
 $ make run-fib
 ------ fibonacci (lladd, llsub) 
-fib-zig: 0:00.35 real, 0.34 user, 0.00 sys
+fib-zig: 0:00.35 real, 0.35 user, 0.00 sys
 0d569dee4b1a3483666d82ba239745c8  -
-  debug: 0:02.06 real, 2.05 user, 0.00 sys
-0d569dee4b1a3483666d82ba239745c8  -
-
-fib-c:   0:00.18 real, 0.18 user, 0.00 sys
+  debug: 0:01.93 real, 1.91 user, 0.00 sys
 0d569dee4b1a3483666d82ba239745c8  -
 
-fib-go:  0:00.22 real, 0.21 user, 0.00 sys
+fib-c:   0:00.17 real, 0.17 user, 0.00 sys
 0d569dee4b1a3483666d82ba239745c8  -
 
-fib-py:  0:00.83 real, 0.82 user, 0.00 sys
+fib-go:  0:00.20 real, 0.20 user, 0.00 sys
 0d569dee4b1a3483666d82ba239745c8  -
 
-fib-rs:  0:00.87 real, 0.86 user, 0.00 sys
+fib-py:  0:00.75 real, 0.75 user, 0.00 sys
+0d569dee4b1a3483666d82ba239745c8  -
+
+fib-rs:  0:00.81 real, 0.81 user, 0.00 sys
 0d569dee4b1a3483666d82ba239745c8  -
 ```
 
 ```
 $ make run-fac
 ------ factorial (llmul, lladd) 
-fac-zig: 0:00.56 real, 0.56 user, 0.00 sys
+fac-zig: 0:00.54 real, 0.54 user, 0.00 sys
 18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-c:   0:00.19 real, 0.19 user, 0.00 sys
+fac-c:   0:00.18 real, 0.18 user, 0.00 sys
 18ef33d21ad1dc05a899112e6de5270f  -
 
 fac-go:  0:00.21 real, 0.21 user, 0.00 sys
 18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-py:  0:00.52 real, 0.50 user, 0.01 sys
+fac-py:  0:00.50 real, 0.48 user, 0.02 sys
 18ef33d21ad1dc05a899112e6de5270f  -
 
-fac-rs:  0:00.55 real, 0.54 user, 0.00 sys
+fac-rs:  0:00.53 real, 0.53 user, 0.00 sys
 18ef33d21ad1dc05a899112e6de5270f  -
+```
 
+```
+$ make run-facdiv
+------ facdiv (llmul, lldiv1, divN) 
+facdiv-zig: 0:00.99 real, 0.98 user, 0.00 sys
+cfcd208495d565ef66e7dff9f98764da  -
+
+facdiv-c:   0:00.16 real, 0.16 user, 0.00 sys
+cfcd208495d565ef66e7dff9f98764da  -
+
+facdiv-go:  0:00.93 real, 0.93 user, 0.00 sys
+cfcd208495d565ef66e7dff9f98764da  -
+
+facdiv-py:  0:00.99 real, 0.99 user, 0.00 sys
+c4ca4238a0b923820dcc509a6f75849b  -
+
+facdiv-rs:  0:05.01 real, 4.98 user, 0.00 sys
+cfcd208495d565ef66e7dff9f98764da  -
 ```
 
 ```
