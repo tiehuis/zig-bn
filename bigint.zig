@@ -1,5 +1,4 @@
 // TODO:
-// - multi-limb division on u64 sized-limb
 // - confirm what behavior we want for shift on negative values
 
 const std = @import("std");
@@ -12,7 +11,7 @@ const ArrayList = std.ArrayList;
 
 const TypeId = builtin.TypeId;
 
-const Limb = u32;
+const Limb = usize;
 const Log2Limb = math.Log2Int(Limb);
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 
@@ -662,9 +661,6 @@ pub const BigInt = struct {
         const b1 = 1 << Limb.bit_count;
         const b2 = 1 << (2 * Limb.bit_count);
 
-        const n = x.limbs.len - 1;
-        const t = y.limbs.len - 1;
-
         var xl = x.limbs.items;
         var yl = y.limbs.items;
         var ql = q.limbs.items;
@@ -677,9 +673,12 @@ pub const BigInt = struct {
         try r.ensureCapacity(3);
 
         // Normalize so y > b/2 (i.e. leading bit is set)
-        const norm_shift = @clz(yl[t]);
+        const norm_shift = @clz(yl[y.limbs.len - 1]);
         try x.shiftLeft(x, norm_shift);
         try y.shiftLeft(y, norm_shift);
+
+        const n = x.limbs.len - 1;
+        const t = y.limbs.len - 1;
 
         // 1.
         q.limbs.len = x.limbs.len + 2;
@@ -706,15 +705,15 @@ pub const BigInt = struct {
             // 3.2
             //
             // We use r as a temporary since it is unused otherwise.
-            tmp.limbs.items[0] = xl[t-2];
-            tmp.limbs.items[1] = xl[t-1];
+            tmp.limbs.items[0] = if (t >= 2) xl[t-2] else 0;
+            tmp.limbs.items[1] = if (t >= 1) xl[t-1] else 0;
             tmp.limbs.items[2] = xl[t];
             tmp.normN(3);
 
             while (true) {
                 // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
                 var carry: Limb = 0;
-                r.limbs.items[0] = addMulLimbWithCarry(0, yl[t-1], ql[i-t-1], &carry);
+                r.limbs.items[0] = addMulLimbWithCarry(0, if (t >= 1) yl[t-1] else 0, ql[i-t-1], &carry);
                 r.limbs.items[1] = addMulLimbWithCarry(carry, yl[t], ql[i-t-1], &carry);
                 r.limbs.items[2] = carry;
                 r.normN(3);
