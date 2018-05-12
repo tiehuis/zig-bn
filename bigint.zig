@@ -112,7 +112,7 @@ pub const BigInt = struct {
                 var w_value = if (value < 0) -value else value;
 
                 if (info.bits <= Limb.bit_count) {
-                    try self.limbs.append(Limb(value));
+                    try self.limbs.append(Limb(w_value));
                 } else {
                     while (w_value != 0) {
                         try self.limbs.append(@truncate(Limb, w_value));
@@ -296,7 +296,7 @@ pub const BigInt = struct {
             var b = try BigInt.initSet(allocator, limb_base);
 
             while (q.limbs.len >= 2) {
-                try BigInt.div(&q, &r, &q, &b);
+                try BigInt.divTrunc(&q, &r, &q, &b);
 
                 var r_word = r.limbs.items[0];
                 var i: usize = 0;
@@ -426,10 +426,18 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
-                try r.sub(a, b);
+                const bp = BigInt {
+                    .positive = true,
+                    .limbs = b.limbs,
+                };
+                try r.sub(a, bp);
             } else {
                 // (-a) + (b) => b - a
-                try r.sub(a, b);
+                const ap = BigInt {
+                    .positive = true,
+                    .limbs = a.limbs,
+                };
+                try r.sub(b, ap);
             }
         } else {
             if (a.limbs.len >= b.limbs.len) {
@@ -475,10 +483,18 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
-                try r.add(a, b);
+                const bp = BigInt {
+                    .positive = true,
+                    .limbs = b.limbs,
+                };
+                try r.add(a, bp);
             } else {
                 // (-a) - (b) => -(a + b)
-                try r.add(a, b);
+                const ap = BigInt {
+                    .positive = true,
+                    .limbs = a.limbs,
+                };
+                try r.add(ap, b);
                 r.positive = false;
             }
         } else {
@@ -602,8 +618,25 @@ pub const BigInt = struct {
         }
     }
 
-    // quo = a / b (rem rem)
-    pub fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn divFloor(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+        try div(q, r, a, b);
+
+        // convert trunc to floor
+        if (!q.positive) {
+            var buffer: [256]u8 = undefined;
+            var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
+            var one = try BigInt.initSet(&stack.allocator, 1);
+
+            try q.sub(q, &one);
+        }
+    }
+
+    pub fn divTrunc(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+        try div(q, r, a, b);
+    }
+
+    // truncates by default.
+    fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) !void {
         if (b.eqZero()) {
             @panic("division by zero");
         }
@@ -667,7 +700,7 @@ pub const BigInt = struct {
                 quo[i] = 1;
                 *rem = 0;
             } else {
-                quo[i] = @truncate(Limb, @divFloor(pdiv, b));
+                quo[i] = @truncate(Limb, @divTrunc(pdiv, b));
                 *rem = @truncate(Limb, pdiv - (quo[i] *% b));
             }
         }
@@ -720,7 +753,7 @@ pub const BigInt = struct {
                 ql[i-t-1] = b - 1;
             } else {
                 const num = DoubleLimb(xl[i]) * b + DoubleLimb(xl[i-1]);
-                q.limbs.items[i-t-1] = Limb(@divFloor(num, DoubleLimb(yl[t])));
+                ql[i-t-1] = Limb(@divTrunc(num, DoubleLimb(yl[t])));
             }
 
             // 3.2
@@ -1259,7 +1292,7 @@ test "bigint div single-single no rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u32)) == 10);
     debug.assert((try r.to(u32)) == 0);
@@ -1271,7 +1304,7 @@ test "bigint div single-single with rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u32)) == 9);
     debug.assert((try r.to(u32)) == 4);
@@ -1286,7 +1319,7 @@ test "bigint div multi-single no rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 0);
@@ -1301,7 +1334,7 @@ test "bigint div multi-single with rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 3);
@@ -1316,7 +1349,7 @@ test "bigint div multi>2-single" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == op1 / op2);
     debug.assert((try r.to(u32)) == 0x3e4e);
@@ -1328,7 +1361,7 @@ test "bigint div single-single q < r" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == 0);
     debug.assert((try r.to(u64)) == 0x0078f432);
@@ -1340,7 +1373,7 @@ test "bigint div single-single q == r" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == 1);
     debug.assert((try r.to(u64)) == 0);
@@ -1350,7 +1383,7 @@ test "bigint div q=0 alias" {
     var a = try BigInt.initSet(al, 3);
     var b = try BigInt.initSet(al, 10);
 
-    try BigInt.div(&a, &b, &a, &b);
+    try BigInt.divTrunc(&a, &b, &a, &b);
 
     debug.assert((try a.to(u64)) == 0);
     debug.assert((try b.to(u64)) == 3);
@@ -1364,48 +1397,155 @@ test "bigint div multi-multi q < r" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0);
     debug.assert((try r.to(u128)) == op1);
 }
 
-// TODO: what behaviour/sign?
-//test "bigint div single-single -/+" {
-//    var a = try BigInt.initSet(al, -49);
-//    var b = try BigInt.initSet(al, 5);
-//
-//    var q = try BigInt.init(al);
-//    var r = try BigInt.init(al);
-//    try BigInt.div(&q, &r, &a, &b);
-//
-//    debug.assert((try q.to(i32)) == -10);
-//    debug.assert((try r.to(i32)) == 1);
-//}
-//
-//test "bigint div single-single +/-" {
-//    var a = try BigInt.initSet(al, 49);
-//    var b = try BigInt.initSet(al, -5);
-//
-//    var q = try BigInt.init(al);
-//    var r = try BigInt.init(al);
-//    try BigInt.div(&q, &r, &a, &b);
-//
-//    debug.assert((try q.to(i32)) == -10);
-//    debug.assert((try r.to(i32)) == -1);
-//}
-//
-//test "bigint div single-single -/-" {
-//    var a = try BigInt.initSet(al, -49);
-//    var b = try BigInt.initSet(al, -5);
-//
-//    var q = try BigInt.init(al);
-//    var r = try BigInt.init(al);
-//    try BigInt.div(&q, &r, &a, &b);
-//
-//    debug.assert((try q.to(i32)) == 10);
-//    debug.assert((try r.to(i32)) == -4);
-//}
+test "bigint div trunc single-single +/+" {
+    const u: i32 = 5;
+    const v: i32 = 3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    const eq = @divTrunc(u, v);
+    const er = @mod(u, v);
+
+    debug.assert((try q.to(i32)) == eq);
+    debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div trunc single-single -/+" {
+    const u: i32 = -5;
+    const v: i32 = 3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    const eq = @divTrunc(u, v);
+    const er = @mod(u, v);
+
+    debug.assert((try q.to(i32)) == eq);
+    // debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div trunc single-single +/-" {
+    const u: i32 = 5;
+    const v: i32 = -3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    const eq = @divTrunc(u, v);
+    const er = u - eq;
+
+    debug.assert((try q.to(i32)) == eq);
+    //debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div trunc single-single -/-" {
+    const u: i32 = -5;
+    const v: i32 = -3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    const eq = @divTrunc(u, v);
+    const er = u - eq;
+
+    debug.assert((try q.to(i32)) == eq);
+    //debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div floor single-single +/+" {
+    const u: i32 = 5;
+    const v: i32 = 3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divFloor(&q, &r, &a, &b);
+
+    const eq = @divFloor(u, v);
+    const er = @mod(u, v);
+
+    debug.assert((try q.to(i32)) == eq);
+    //debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div floor single-single -/+" {
+    const u: i32 = -5;
+    const v: i32 = 3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divFloor(&q, &r, &a, &b);
+
+    const eq = @divFloor(u, v);
+    const er = @mod(u, v);
+
+    debug.assert((try q.to(i32)) == eq);
+    // debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div floor single-single +/-" {
+    const u: i32 = 5;
+    const v: i32 = -3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divFloor(&q, &r, &a, &b);
+
+    const eq = @divFloor(u, v);
+    const er = u - eq;
+
+    debug.assert((try q.to(i32)) == eq);
+    //debug.assert((try r.to(i32)) == er);
+}
+
+test "bigint div floor single-single -/-" {
+    const u: i32 = -5;
+    const v: i32 = -3;
+
+    var a = try BigInt.initSet(al, u);
+    var b = try BigInt.initSet(al, v);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divFloor(&q, &r, &a, &b);
+
+    const eq = @divFloor(u, v);
+    const er = u - eq;
+
+    debug.assert((try q.to(i32)) == eq);
+    //debug.assert((try r.to(i32)) == er);
+}
 
 test "bigint div multi-multi no rem" {
     var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
@@ -1413,7 +1553,7 @@ test "bigint div multi-multi no rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
@@ -1425,7 +1565,7 @@ test "bigint div multi-mutli with rem" {
 
     var q = try BigInt.init(al);
     var r = try BigInt.init(al);
-    try BigInt.div(&q, &r, &a, &b);
+    try BigInt.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0);
