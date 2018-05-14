@@ -164,15 +164,12 @@ pub const BigInt = struct {
     pub fn to(self: &const BigInt, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                // TODO: Use a @clz and check if it fits instead. Avoids the compare since we
-                // know any integer type is a power of two. Avoids the stack allocation as well.
-                // Can handle the signed requirement by simply checking the twos-complement.
-                var buffer: [128]u8 = undefined;
-                var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-                var max_t_size = BigInt.initSet(&stack.allocator, @maxValue(T)) catch unreachable;
+                var bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len-1]));
+                if (!self.positive) {
+                    bit_count += 1;
+                }
 
-                // TODO: Minimum negative value will fail here even if okay.
-                if (self.cmp(max_t_size) > 0) {
+                if (bit_count > 8 * @sizeOf(T)) {
                     return error.TargetTooSmall;
                 }
 
