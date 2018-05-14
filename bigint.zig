@@ -16,21 +16,18 @@ const Log2Limb = math.Log2Int(Limb);
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 
 pub const BigInt = struct {
+    allocator: &Allocator,
     positive: bool,
     //  - little-endian ordered
-    //  - limbs.len >= 1 always
-    //  - zero value -> limbs.len == 1 with limbs.items[0] == 0
-    limbs: ArrayList(Limb),
+    //  - len >= 1 always
+    //  - zero value -> len == 1 with limbs[0] == 0
+    limbs: []Limb,
+    len: usize,
+
+    const default_capacity = 4;
 
     pub fn init(allocator: &Allocator) !BigInt {
-        return BigInt {
-            .positive = false,
-            .limbs = block: {
-                var limbs = ArrayList(Limb).init(allocator);
-                try limbs.append(0);
-                break :block limbs;
-            },
-        };
+        return try BigInt.initCapacity(allocator, default_capacity);
     }
 
     pub fn initSet(allocator: &Allocator, value: var) !BigInt {
@@ -41,32 +38,39 @@ pub const BigInt = struct {
 
     pub fn initCapacity(allocator: &Allocator, capacity: usize) !BigInt {
         return BigInt {
+            .allocator = allocator,
             .positive = false,
             .limbs = block: {
-                var limbs = ArrayList(Limb).init(allocator);
-                try limbs.ensureCapacity(capacity);
-                try limbs.append(0);
+                var limbs = try allocator.alloc(Limb, capacity);
+                limbs[0] = 0;
                 break :block limbs;
             },
+            .len = 1,
         };
     }
 
     pub fn ensureCapacity(self: &BigInt, capacity: usize) !void {
-        try self.limbs.ensureCapacity(capacity);
+        if (capacity <= self.limbs.len) {
+            return;
+        }
+
+        self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
     pub fn deinit(self: &const BigInt) void {
-        self.limbs.deinit();
+        self.allocator.free(self.limbs);
     }
 
     pub fn clone(other: &const BigInt) !BigInt {
         return BigInt {
+            .allocator = other.allocator,
             .positive = other.positive,
             .limbs = block: {
-                var limbs = ArrayList(Limb).init(other.limbs.allocator);
-                try limbs.appendSlice(other.limbs.toSliceConst());
+                var limbs = try other.allocator.alloc(Limb, other.len);
+                mem.copy(Limb, limbs[0..], other.limbs[0..other.len]);
                 break :block limbs;
             },
+            .len = other.len,
         };
     }
 
@@ -76,18 +80,17 @@ pub const BigInt = struct {
         }
 
         self.positive = other.positive;
-        self.limbs.len = 0;
-        self.limbs.shrink(0);
-        try self.limbs.appendSlice(other.limbs.toSliceConst());
+        try self.ensureCapacity(other.len);
+        mem.copy(Limb, self.limbs[0..], other.limbs[0..other.len]);
+        self.len = other.len;
     }
 
     pub fn swap(self: &BigInt, other: &BigInt) void {
-        mem.swap(bool, &self.positive, &other.positive);
-        mem.swap(ArrayList(Limb), &self.limbs, &other.limbs);
+        mem.swap(BigInt, self, other);
     }
 
     pub fn dump(self: &const BigInt) void {
-        for (self.limbs.toSliceConst()) |limb| {
+        for (self.limbs) |limb| {
             std.debug.warn("{x} ", limb);
         }
         std.debug.warn("\n");
@@ -106,16 +109,20 @@ pub const BigInt = struct {
 
         switch (@typeInfo(T)) {
             TypeId.Int => |info| {
+                try self.ensureCapacity(@sizeOf(T) / @sizeOf(Limb));
                 self.positive = value >= 0;
-                self.limbs.shrink(0);
+                self.len = 0;
 
                 var w_value = if (value < 0) -value else value;
 
                 if (info.bits <= Limb.bit_count) {
-                    try self.limbs.append(Limb(w_value));
+                    self.limbs[0] = Limb(w_value);
+                    self.len = 1;
                 } else {
-                    while (w_value != 0) {
-                        try self.limbs.append(@truncate(Limb, w_value));
+                    while (w_value != 0) |i| {
+                        self.limbs[i] = @truncate(Limb, w_value);
+                        self.len += 1;
+
                         // TODO: shift == 64 at compile-time fails. Need to fix.
                         w_value >>= Limb.bit_count / 2;
                         w_value >>= Limb.bit_count / 2;
@@ -123,21 +130,28 @@ pub const BigInt = struct {
                 }
             },
             TypeId.IntLiteral => {
+                var ilimbs = ArrayList(Limb).init(self.allocator);
+                defer ilimbs.deinit();
+
                 self.positive = value >= 0;
-                self.limbs.shrink(0);
+                self.len = 0;
 
                 comptime var w_value = if (value < 0) -value else value;
 
                 if (w_value <= @maxValue(Limb)) {
-                    try self.limbs.append(w_value);
+                    try ilimbs.append(w_value);
                 } else {
+                    const mask = (1 << Limb.bit_count) - 1;
                     inline while (w_value != 0) {
-                        const mask = (1 << Limb.bit_count) - 1;
-                        try self.limbs.append(w_value & mask);
+                        try ilimbs.append(w_value & mask);
                         w_value >>= Limb.bit_count / 2;
                         w_value >>= Limb.bit_count / 2;
                     }
                 }
+
+                try self.ensureCapacity(ilimbs.len);
+                mem.copy(Limb, self.limbs, ilimbs.toSliceConst());
+                self.len = ilimbs.len;
             },
             else => {
                 @compileError("cannot set BigInt using type " ++ @typeName(T));
@@ -153,14 +167,10 @@ pub const BigInt = struct {
     pub fn to(self: &const BigInt, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                // We need the extra 32-bytes due to the way the ArrayList ensureCapacity function
-                // over-allocates. Consider adding an ensureExactCapacity or some variant.
-                // This would fail on very large T right now.
-                //
                 // TODO: Use a @clz and check if it fits instead. Avoids the compare since we
                 // know any integer type is a power of two. Avoids the stack allocation as well.
                 // Can handle the signed requirement by simply checking the twos-complement.
-                var buffer: [T.bit_count / Limb.bit_count + 1 + 128]u8 = undefined;
+                var buffer: [128]u8 = undefined;
                 var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
                 var max_t_size = BigInt.initSet(&stack.allocator, @maxValue(T)) catch unreachable;
 
@@ -172,10 +182,10 @@ pub const BigInt = struct {
                 var r: T = 0;
 
                 if (@sizeOf(T) <= @sizeOf(Limb)) {
-                    r = T(self.limbs.items[0]);
+                    r = T(self.limbs[0]);
                 } else {
-                    for (self.limbs.toSliceConst()) |_, ri| {
-                        const limb = self.limbs.at(self.limbs.len - ri - 1);
+                    for (self.limbs[0..self.len]) |_, ri| {
+                        const limb = self.limbs[self.len - ri - 1];
                         r <<= Limb.bit_count;
                         r |= limb;
                     }
@@ -228,8 +238,7 @@ pub const BigInt = struct {
             self.positive = true;
         }
 
-        // TODO: We need to over-allocate here due to the way ArrayList works.
-        var buffer: [256]u8 = undefined;
+        var buffer: [128]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var b = try BigInt.initSet(&stack.allocator, base);
         var p = try BigInt.init(&stack.allocator);
@@ -263,7 +272,7 @@ pub const BigInt = struct {
         if (base & (base - 1) == 0) {
             const base_shift = math.log2_int(Limb, base);
 
-            for (self.limbs.toSliceConst()) |limb| {
+            for (self.limbs[0..self.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
                     const r = u8((limb >> Log2Limb(shift)) & Limb(base - 1));
@@ -295,10 +304,10 @@ pub const BigInt = struct {
             var r = try BigInt.init(allocator);
             var b = try BigInt.initSet(allocator, limb_base);
 
-            while (q.limbs.len >= 2) {
+            while (q.len >= 2) {
                 try BigInt.divTrunc(&q, &r, &q, &b);
 
-                var r_word = r.limbs.items[0];
+                var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
                     const ch = try digitToChar(u8(r_word % base), base);
@@ -308,9 +317,9 @@ pub const BigInt = struct {
             }
 
             {
-                std.debug.assert(q.limbs.len == 1);
+                std.debug.assert(q.len == 1);
 
-                var r_word = q.limbs.items[0];
+                var r_word = q.limbs[0];
                 while (r_word != 0) {
                     const ch = try digitToChar(u8(r_word % base), base);
                     r_word /= base;
@@ -330,23 +339,23 @@ pub const BigInt = struct {
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: &const BigInt, b: &const BigInt) i8 {
-        if (a.limbs.len < b.limbs.len) {
+        if (a.len < b.len) {
             return -1;
         }
-        if (a.limbs.len > b.limbs.len) {
+        if (a.len > b.len) {
             return 1;
         }
 
-        var i: usize = a.limbs.len - 1;
+        var i: usize = a.len - 1;
         while (i != 0) : (i -= 1) {
-            if (a.limbs.items[i] != b.limbs.items[i]) {
+            if (a.limbs[i] != b.limbs[i]) {
                 break;
             }
         }
 
-        if (a.limbs.items[i] < b.limbs.items[i]) {
+        if (a.limbs[i] < b.limbs[i]) {
             return -1;
-        } else if (a.limbs.items[i] > b.limbs.items[i]) {
+        } else if (a.limbs[i] > b.limbs[i]) {
             return 1;
         } else {
             return 0;
@@ -365,7 +374,7 @@ pub const BigInt = struct {
 
     // if a == 0
     pub fn eqZero(a: &const BigInt) bool {
-        return a.limbs.len == 1 and a.limbs.items[0] == 0;
+        return a.len == 1 and a.limbs[0] == 0;
     }
 
     // if |a| == |b|
@@ -381,16 +390,16 @@ pub const BigInt = struct {
     // Normalize for a possible single carry digit.
     //
     // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
-    // [1, 2, 3, 4, 5] -> [1, 2, 3, 4]
+    // [1, 2, 3, 4, 5] -> [1, 2, 3, 4, 5]
     // [0]             -> [0]
     fn norm1(r: &BigInt, length: usize) void {
         std.debug.assert(length > 0);
 
-        if (r.limbs.items[length - 1] == 0) {
-            std.debug.assert(length == 1 or r.limbs.items[length - 2] != 0);
-            r.limbs.len = length - 1;
+        if (r.limbs[length - 1] == 0) {
+            std.debug.assert(length == 1 or r.limbs[length - 2] != 0);
+            r.len = length - 1;
         } else {
-            r.limbs.len = length;
+            r.len = length;
         }
     }
 
@@ -401,16 +410,17 @@ pub const BigInt = struct {
     // [0, 0, 0, 0, 0] -> [0]
     fn normN(r: &BigInt, length: usize) void {
         std.debug.assert(length > 0);
+        std.debug.assert(length <= r.limbs.len);
 
         var j = length;
         while (j > 0) : (j -= 1) {
-            if (r.limbs.items[j - 1] != 0) {
+            if (r.limbs[j - 1] != 0) {
                 break;
             }
         }
 
         // zero is represented as a length 1 limb.
-        r.limbs.len = if (j != 0) j else 1;
+        r.len = if (j != 0) j else 1;
     }
 
     // r = a + b
@@ -427,27 +437,31 @@ pub const BigInt = struct {
             if (a.positive) {
                 // (a) + (-b) => a - b
                 const bp = BigInt {
+                    .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
+                    .len = b.len,
                 };
                 try r.sub(a, bp);
             } else {
                 // (-a) + (b) => b - a
                 const ap = BigInt {
+                    .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
+                    .len = a.len,
                 };
                 try r.sub(b, ap);
             }
         } else {
-            if (a.limbs.len >= b.limbs.len) {
-                try r.limbs.ensureCapacity(a.limbs.len + 1);
-                lladd(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-                r.norm1(a.limbs.len + 1);
+            if (a.len >= b.len) {
+                try r.ensureCapacity(a.len + 1);
+                lladd(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+                r.norm1(a.len + 1);
             } else {
-                try r.limbs.ensureCapacity(b.limbs.len + 1);
-                lladd(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-                r.norm1(b.limbs.len + 1);
+                try r.ensureCapacity(b.len + 1);
+                lladd(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+                r.norm1(b.len + 1);
             }
 
             r.positive = a.positive;
@@ -484,28 +498,32 @@ pub const BigInt = struct {
             if (a.positive) {
                 // (a) - (-b) => a + b
                 const bp = BigInt {
+                    .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
+                    .len = b.len,
                 };
                 try r.add(a, bp);
             } else {
                 // (-a) - (b) => -(a + b)
                 const ap = BigInt {
+                    .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
+                    .len = a.len,
                 };
                 try r.add(ap, b);
                 r.positive = false;
             }
         } else {
             if (a.cmp(b) >= 0) {
-                try r.limbs.ensureCapacity(a.limbs.len + 1);
-                llsub(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-                r.normN(a.limbs.len);
+                try r.ensureCapacity(a.len + 1);
+                llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+                r.normN(a.len);
             } else {
-                try r.limbs.ensureCapacity(b.limbs.len + 1);
-                llsub(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-                r.normN(b.limbs.len);
+                try r.ensureCapacity(b.len + 1);
+                llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+                r.normN(b.len);
             }
 
             r.positive = a.positive;
@@ -547,7 +565,7 @@ pub const BigInt = struct {
 
         var sr: BigInt = undefined;
         if (aliased) {
-            sr = try BigInt.initCapacity(rma.limbs.allocator, a.limbs.len + b.limbs.len);
+            sr = try BigInt.initCapacity(rma.allocator, a.len + b.len);
             r = &sr;
             aliased = true;
         }
@@ -556,16 +574,16 @@ pub const BigInt = struct {
             r.deinit();
         };
 
-        try r.limbs.ensureCapacity(a.limbs.len + b.limbs.len);
+        try r.ensureCapacity(a.len + b.len);
 
-        if (a.limbs.len >= b.limbs.len) {
-            llmul(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
+        if (a.len >= b.len) {
+            llmul(r.limbs, a.limbs[0..a.len], b.limbs[0..b.len]);
         } else {
-            llmul(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
+            llmul(r.limbs, b.limbs[0..b.len], a.limbs[0..a.len]);
         }
 
         r.positive = a.positive == b.positive;
-        r.normN(a.limbs.len + b.limbs.len);
+        r.normN(a.len + b.len);
     }
 
     // a + b * c + *carry, sets carry to the overflow bits
@@ -623,7 +641,7 @@ pub const BigInt = struct {
 
         // convert trunc to floor
         if (!q.positive) {
-            var buffer: [256]u8 = undefined;
+            var buffer: [128]u8 = undefined;
             var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
             var one = try BigInt.initSet(&stack.allocator, 1);
 
@@ -650,30 +668,31 @@ pub const BigInt = struct {
             rem.positive = a.positive == b.positive;
 
             quo.positive = true;
-            quo.limbs.len = 1;
-            quo.limbs.items[0] = 0;
+            quo.len = 1;
+            quo.limbs[0] = 0;
             return;
         }
 
-        if (b.limbs.len == 1) {
-            try quo.limbs.ensureCapacity(a.limbs.len);
+        if (b.len == 1) {
+            try quo.ensureCapacity(a.len);
 
-            lldiv1(quo.limbs.items[0..], &rem.limbs.items[0], a.limbs.toSliceConst(), b.limbs.items[0]);
-            quo.norm1(a.limbs.len);
+            lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[0..a.len], b.limbs[0]);
+            quo.norm1(a.len);
             quo.positive = a.positive == b.positive;
 
-            rem.limbs.len = 1;
+            rem.len = 1;
             rem.positive = true;
         } else {
             // x and y are modified during division
             var x = try a.clone();
             defer x.deinit();
+
             var y = try b.clone();
             defer y.deinit();
 
             // x may grow one limb during normalization
-            try quo.limbs.ensureCapacity(a.limbs.len + 2);
-            try divN(quo.limbs.allocator, quo, rem, &x, &y);
+            try quo.ensureCapacity(a.len + 2);
+            try divN(quo.allocator, quo, rem, &x, &y);
 
             quo.positive = a.positive == b.positive;
         }
@@ -710,14 +729,10 @@ pub const BigInt = struct {
     //
     // x = qy + r where 0 <= r < y
     fn divN(allocator: &Allocator, q: &BigInt, r: &BigInt, x: &BigInt, y: &BigInt) !void {
-        std.debug.assert(q.limbs.items.len >= x.limbs.len + 2);
-        std.debug.assert(x.limbs.len >= y.limbs.len);
+        std.debug.assert(q.limbs.len >= x.len + 1);
+        std.debug.assert(x.len >= y.len);
 
         const b = 1 << Limb.bit_count;
-
-        var xl = x.limbs.items;
-        var yl = y.limbs.items;
-        var ql = q.limbs.items;
 
         var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
@@ -727,21 +742,21 @@ pub const BigInt = struct {
         try r.ensureCapacity(3);
 
         // Normalize so y > b/2 (i.e. leading bit is set)
-        const norm_shift = @clz(yl[y.limbs.len - 1]);
+        const norm_shift = @clz(y.limbs[y.len - 1]);
         try x.shiftLeft(x, norm_shift);
         try y.shiftLeft(y, norm_shift);
 
-        const n = x.limbs.len - 1;
-        const t = y.limbs.len - 1;
+        const n = x.len - 1;
+        const t = y.len - 1;
 
         // 1.
-        q.limbs.len = x.limbs.len + 2;
-        mem.set(Limb, ql[0..q.limbs.len], 0);
+        q.len = x.len + 1;
+        mem.set(Limb, q.limbs[0..q.len], 0);
 
         // 2.
         try tmp.shiftLeft(y, Limb.bit_count * (n - t));
         while (x.cmp(&tmp) >= 0) {
-            ql[n-t] += 1;
+            q.limbs[n-t] += 1;
             try x.sub(x, tmp);
         }
 
@@ -749,38 +764,38 @@ pub const BigInt = struct {
         var i = n;
         while (i > t) : (i -= 1) {
             // 3.1
-            if (xl[i] == yl[t]) {
-                ql[i-t-1] = b - 1;
+            if (x.limbs[i] == y.limbs[t]) {
+                q.limbs[i-t-1] = b - 1;
             } else {
-                const num = DoubleLimb(xl[i]) * b + DoubleLimb(xl[i-1]);
-                ql[i-t-1] = Limb(@divTrunc(num, DoubleLimb(yl[t])));
+                const num = DoubleLimb(x.limbs[i]) * b + DoubleLimb(x.limbs[i-1]);
+                q.limbs[i-t-1] = Limb(@divTrunc(num, DoubleLimb(y.limbs[t])));
             }
 
             // 3.2
             //
             // We use r as a temporary since it is unused otherwise.
-            tmp.limbs.items[0] = if (t >= 2) xl[t-2] else 0;
-            tmp.limbs.items[1] = if (t >= 1) xl[t-1] else 0;
-            tmp.limbs.items[2] = xl[t];
+            tmp.limbs[0] = if (t >= 2) x.limbs[t-2] else 0;
+            tmp.limbs[1] = if (t >= 1) x.limbs[t-1] else 0;
+            tmp.limbs[2] = x.limbs[t];
             tmp.normN(3);
 
             while (true) {
                 // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
                 var carry: Limb = 0;
-                r.limbs.items[0] = addMulLimbWithCarry(0, if (t >= 1) yl[t-1] else 0, ql[i-t-1], &carry);
-                r.limbs.items[1] = addMulLimbWithCarry(carry, yl[t], ql[i-t-1], &carry);
-                r.limbs.items[2] = carry;
+                r.limbs[0] = addMulLimbWithCarry(0, if (t >= 1) y.limbs[t-1] else 0, q.limbs[i-t-1], &carry);
+                r.limbs[1] = addMulLimbWithCarry(carry, y.limbs[t], q.limbs[i-t-1], &carry);
+                r.limbs[2] = carry;
                 r.normN(3);
 
                 if (r.cmp(&tmp) <= 0) {
                     break;
                 }
 
-                ql[i-t-1] -= 1;
+                q.limbs[i-t-1] -= 1;
             }
 
             // 3.3
-            try tmp.set(ql[i-t-1]);
+            try tmp.set(q.limbs[i-t-1]);
             try tmp.mul(&tmp, y);
             try tmp.shiftLeft(&tmp, Limb.bit_count * (i - t - 1));
             try x.sub(x, &tmp);
@@ -788,22 +803,22 @@ pub const BigInt = struct {
             if (!x.positive) {
                 try tmp.shiftLeft(y, Limb.bit_count * (i - t - 1));
                 try x.add(x, &tmp);
-                ql[i-t-1] -= 1;
+                q.limbs[i-t-1] -= 1;
             }
         }
 
         // Denormalize
-        q.normN(q.limbs.len);
+        q.normN(q.len);
 
         try r.shiftRight(x, norm_shift);
-        r.normN(r.limbs.len);
+        r.normN(r.len);
     }
 
     // r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: &BigInt, a: &const BigInt, shift: usize) !void {
-        try r.limbs.ensureCapacity(a.limbs.len + (shift / Limb.bit_count) + 1);
-        llshl(r.limbs.items[0..], a.limbs.toSliceConst(), shift);
-        r.norm1(a.limbs.len + (shift / Limb.bit_count) + 1);
+        try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
+        llshl(r.limbs[0..], a.limbs[0..a.len], shift);
+        r.norm1(a.len + (shift / Limb.bit_count) + 1);
         r.positive = a.positive;
     }
 
@@ -832,16 +847,16 @@ pub const BigInt = struct {
 
     // r = a >> shift
     pub fn shiftRight(r: &BigInt, a: &const BigInt, shift: usize) !void {
-        if (a.limbs.len <= shift / Limb.bit_count) {
-            r.limbs.len = 1;
-            r.limbs.items[0] = 0;
+        if (a.len <= shift / Limb.bit_count) {
+            r.len = 1;
+            r.limbs[0] = 0;
             r.positive = true;
             return;
         }
 
-        try r.limbs.ensureCapacity(a.limbs.len - (shift / Limb.bit_count));
-        const r_len = llshr(r.limbs.items[0..], a.limbs.toSliceConst(), shift);
-        r.limbs.len = a.limbs.len - (shift / Limb.bit_count);
+        try r.ensureCapacity(a.len - (shift / Limb.bit_count));
+        const r_len = llshr(r.limbs[0..], a.limbs[0..a.len], shift);
+        r.len = a.len - (shift / Limb.bit_count);
         r.positive = a.positive;
     }
 
@@ -867,14 +882,14 @@ pub const BigInt = struct {
 
     // r = a | b
     pub fn bitOr(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
-        if (a.limbs.len > b.limbs.len) {
-            try r.limbs.ensureCapacity(a.limbs.len);
-            llor(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            r.limbs.len = a.limbs.len;
+        if (a.len > b.len) {
+            try r.ensureCapacity(a.len);
+            llor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+            r.len = a.len;
         } else {
-            try r.limbs.ensureCapacity(b.limbs.len);
-            llor(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-            r.limbs.len = b.limbs.len;
+            try r.ensureCapacity(b.len);
+            llor(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+            r.len = b.len;
         }
     }
 
@@ -894,14 +909,14 @@ pub const BigInt = struct {
 
     // r = a & b
     pub fn bitAnd(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
-        if (a.limbs.len > b.limbs.len) {
-            try r.limbs.ensureCapacity(b.limbs.len);
-            const r_len = lland(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            r.normN(b.limbs.len);
+        if (a.len > b.len) {
+            try r.ensureCapacity(b.len);
+            lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+            r.normN(b.len);
         } else {
-            try r.limbs.ensureCapacity(a.limbs.len);
-            const r_len = lland(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-            r.normN(a.limbs.len);
+            try r.ensureCapacity(a.len);
+            lland(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+            r.normN(a.len);
         }
     }
 
@@ -918,14 +933,14 @@ pub const BigInt = struct {
 
     // r = a ^ b
     pub fn bitXor(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
-        if (a.limbs.len > b.limbs.len) {
-            try r.limbs.ensureCapacity(a.limbs.len);
-            const r_len = llxor(r.limbs.items[0..], a.limbs.toSliceConst(), b.limbs.toSliceConst());
-            r.normN(a.limbs.len);
+        if (a.len > b.len) {
+            try r.ensureCapacity(a.len);
+            llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+            r.normN(a.len);
         } else {
-            try r.limbs.ensureCapacity(b.limbs.len);
-            const r_len = llxor(r.limbs.items[0..], b.limbs.toSliceConst(), a.limbs.toSliceConst());
-            r.normN(b.limbs.len);
+            try r.ensureCapacity(b.len);
+            llxor(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+            r.normN(b.len);
         }
     }
 
@@ -963,14 +978,14 @@ test "bigint comptime_int set" {
         const result = Limb(s & @maxValue(Limb));
         s >>= Limb.bit_count / 2;
         s >>= Limb.bit_count / 2;
-        debug.assert(a.limbs.items[i] == result);
+        debug.assert(a.limbs[i] == result);
     }
 }
 
 test "bigint comptime_int set negative" {
     var a = try BigInt.initSet(al, -10);
 
-    debug.assert(a.limbs.items[0] == 10);
+    debug.assert(a.limbs[0] == 10);
     debug.assert(a.positive == false);
 }
 
