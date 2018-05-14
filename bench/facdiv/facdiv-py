@@ -6,9 +6,12 @@ def main():
     f = 1
     c = 1
 
-    while c < target:
+    while c <= target:
         f *= c
         c += 1
+
+    s = hex(f)[2:]
+    print(s, end=' ')
 
     while c != 1:
         c -= 1

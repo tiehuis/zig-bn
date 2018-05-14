@@ -17,12 +17,14 @@ int main(void)
         mpz_add(c, c, one);
     }
 
+    gmp_printf("%Zx ", f);
+
     mpz_t r;
     mpz_init(r);
 
     for (int i = target - 1; i != 0; --i) {
-        mpz_fdiv_qr(f, r, f, c);
         mpz_sub(c, c, one);
+        mpz_fdiv_qr(f, r, f, c);
     }
 
     gmp_printf("%Zx", f);
