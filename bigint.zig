@@ -1,6 +1,3 @@
-// TODO:
-// - confirm what behavior we want for shift on negative values
-
 const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
@@ -12,8 +9,8 @@ const ArrayList = std.ArrayList;
 const TypeId = builtin.TypeId;
 
 const Limb = usize;
-const Log2Limb = math.Log2Int(Limb);
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
+const Log2Limb = math.Log2Int(Limb);
 
 pub const BigInt = struct {
     allocator: &Allocator,
@@ -419,7 +416,7 @@ pub const BigInt = struct {
             }
         }
 
-        // zero is represented as a length 1 limb.
+        // Handle zero
         r.len = if (j != 0) j else 1;
     }
 
@@ -531,8 +528,6 @@ pub const BigInt = struct {
     }
 
     // Knuth 4.3.1, Algorithm S.
-    //
-    // Returns the length of rop.
     fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
         @setRuntimeSafety(false);
         debug.assert(a.len != 0 and b.len != 0);
@@ -639,21 +634,24 @@ pub const BigInt = struct {
     pub fn divFloor(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
         try div(q, r, a, b);
 
-        // convert trunc to floor
+        // Trunc -> Floor.
         if (!q.positive) {
             var buffer: [128]u8 = undefined;
             var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
             var one = try BigInt.initSet(&stack.allocator, 1);
 
             try q.sub(q, &one);
+            try r.add(q, &one);
         }
+        r.positive = b.positive;
     }
 
     pub fn divTrunc(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
         try div(q, r, a, b);
+        r.positive = a.positive;
     }
 
-    // truncates by default.
+    // Truncates by default.
     fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) !void {
         if (b.eqZero()) {
             @panic("division by zero");
@@ -815,6 +813,7 @@ pub const BigInt = struct {
     }
 
     // r = a << shift, in other words, r = a * 2^shift
+    // TODO: We may want twos-complement shifting here.
     pub fn shiftLeft(r: &BigInt, a: &const BigInt, shift: usize) !void {
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
@@ -846,6 +845,7 @@ pub const BigInt = struct {
     }
 
     // r = a >> shift
+    // TODO: We may want twos-complement shifting here.
     pub fn shiftRight(r: &BigInt, a: &const BigInt, shift: usize) !void {
         if (a.len <= shift / Limb.bit_count) {
             r.len = 1;
@@ -1429,6 +1429,8 @@ test "bigint div trunc single-single +/+" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
+    // n = q * d + r
+    // 5 = 1 * 3 + 2
     const eq = @divTrunc(u, v);
     const er = @mod(u, v);
 
@@ -1447,11 +1449,13 @@ test "bigint div trunc single-single -/+" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
-    const eq = @divTrunc(u, v);
-    const er = @mod(u, v);
+    //  n = q *  d + r
+    // -5 = 1 * -3 - 2
+    const eq = -1;
+    const er = -2;
 
     debug.assert((try q.to(i32)) == eq);
-    // debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div trunc single-single +/-" {
@@ -1465,11 +1469,13 @@ test "bigint div trunc single-single +/-" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
-    const eq = @divTrunc(u, v);
-    const er = u - eq;
+    // n =  q *  d + r
+    // 5 = -1 * -3 + 2
+    const eq = -1;
+    const er = 2;
 
     debug.assert((try q.to(i32)) == eq);
-    //debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div trunc single-single -/-" {
@@ -1483,11 +1489,13 @@ test "bigint div trunc single-single -/-" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
-    const eq = @divTrunc(u, v);
-    const er = u - eq;
+    //  n = q *  d + r
+    // -5 = 1 * -3 - 2
+    const eq = 1;
+    const er = -2;
 
     debug.assert((try q.to(i32)) == eq);
-    //debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div floor single-single +/+" {
@@ -1501,11 +1509,13 @@ test "bigint div floor single-single +/+" {
     var r = try BigInt.init(al);
     try BigInt.divFloor(&q, &r, &a, &b);
 
-    const eq = @divFloor(u, v);
-    const er = @mod(u, v);
+    //  n =  q *  d + r
+    //  5 =  1 *  3 + 2
+    const eq = 1;
+    const er = 2;
 
     debug.assert((try q.to(i32)) == eq);
-    //debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div floor single-single -/+" {
@@ -1519,11 +1529,13 @@ test "bigint div floor single-single -/+" {
     var r = try BigInt.init(al);
     try BigInt.divFloor(&q, &r, &a, &b);
 
-    const eq = @divFloor(u, v);
-    const er = @mod(u, v);
+    //  n =  q *  d + r
+    // -5 = -2 *  3 + 1
+    const eq = -2;
+    const er = 1;
 
     debug.assert((try q.to(i32)) == eq);
-    // debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div floor single-single +/-" {
@@ -1537,11 +1549,13 @@ test "bigint div floor single-single +/-" {
     var r = try BigInt.init(al);
     try BigInt.divFloor(&q, &r, &a, &b);
 
-    const eq = @divFloor(u, v);
-    const er = u - eq;
+    //  n =  q *  d + r
+    //  5 = -2 * -3 - 1
+    const eq = -2;
+    const er = -1;
 
     debug.assert((try q.to(i32)) == eq);
-    //debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div floor single-single -/-" {
@@ -1555,11 +1569,13 @@ test "bigint div floor single-single -/-" {
     var r = try BigInt.init(al);
     try BigInt.divFloor(&q, &r, &a, &b);
 
-    const eq = @divFloor(u, v);
-    const er = u - eq;
+    //  n =  q *  d + r
+    // -5 =  2 * -3 + 1
+    const eq = 1;
+    const er = -2;
 
     debug.assert((try q.to(i32)) == eq);
-    //debug.assert((try r.to(i32)) == er);
+    debug.assert((try r.to(i32)) == er);
 }
 
 test "bigint div multi-multi no rem" {

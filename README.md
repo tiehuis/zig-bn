@@ -1,4 +1,4 @@
-An (unfinished) arbitrary precision big number library for [zig](http://ziglang.org/).
+An arbitrary precision big integer library for [zig](http://ziglang.org/).
 
 The interface is akin to that of GMP.
 
