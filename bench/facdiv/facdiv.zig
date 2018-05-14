@@ -17,12 +17,16 @@ pub fn main() !void {
         try c.add(&c, &one);
     }
 
+    const ss1 = try f.toString(allocator, 16);
+    try stdout_file.write(ss1);
+    try stdout_file.write(" ");
+
     var r = try BigInt.init(allocator);
 
     i = target - 1;
     while (i != 0) : (i -= 1) {
-        try f.div(&r, &f, &c);
         try c.sub(&c, &one);
+        try f.div(&r, &f, &c);
     }
 
     const ss = try f.toString(allocator, 16);

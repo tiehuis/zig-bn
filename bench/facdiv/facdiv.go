@@ -21,11 +21,13 @@ func main() {
 		c.Add(c, one)
 	}
 
+	fmt.Printf("%x ", f)
+
 	r := new(big.Int)
 
 	for i := target - 1; i != 0; i-- {
-		f.QuoRem(f, c, r)
 		c.Sub(c, one)
+		f.QuoRem(f, c, r)
 	}
 
 	fmt.Printf("%x", f)

@@ -16,10 +16,12 @@ fn main() {
         c = &c + &one;
     }
 
+    print!("{:x} ", f);
+
     let mut i = TARGET - 1;
     while i != 0 {
-        f = &f / &c;
         c = &c - &one;
+        f = &f / &c;
         i -= 1;
     }
 
