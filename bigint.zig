@@ -21,10 +21,8 @@ pub const BigInt = struct {
     limbs: []Limb,
     len: usize,
 
-    const default_capacity = 4;
-
     pub fn init(allocator: &Allocator) !BigInt {
-        return try BigInt.initCapacity(allocator, default_capacity);
+        return try BigInt.initCapacity(allocator, 4);
     }
 
     pub fn initSet(allocator: &Allocator, value: var) !BigInt {
@@ -101,6 +99,15 @@ pub const BigInt = struct {
         r.positive = true;
     }
 
+    fn bitcount(self: &const BigInt) usize {
+        const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
+        return usize(!self.positive) + u_bit_count;
+    }
+
+    pub fn sizeInBase(self: &const BigInt, base: usize) usize {
+        return (self.bitcount() / math.log2(base)) + 1;
+    }
+
     pub fn set(self: &BigInt, value: var) Allocator.Error!void {
         const T = @typeOf(value);
 
@@ -164,12 +171,7 @@ pub const BigInt = struct {
     pub fn to(self: &const BigInt, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                var bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len-1]));
-                if (!self.positive) {
-                    bit_count += 1;
-                }
-
-                if (bit_count > 8 * @sizeOf(T)) {
+                if (self.bitcount() > 8 * @sizeOf(T)) {
                     return error.TargetTooSmall;
                 }
 
@@ -237,8 +239,6 @@ pub const BigInt = struct {
         var b = try BigInt.initSet(&stack.allocator, base);
         var p = try BigInt.init(&stack.allocator);
 
-        // TODO: Can specialize power of twos into a shift instead of a mul. Can also
-        // pre-allocate space required.
         try self.set(0);
         for (value[i..]) |ch| {
             const d = try charToDigit(ch, base);
@@ -255,6 +255,7 @@ pub const BigInt = struct {
         }
 
         var digits = ArrayList(u8).init(allocator);
+        try digits.ensureCapacity(self.sizeInBase(base) + 1);
         defer digits.deinit();
 
         if (self.eqZero()) {
@@ -996,6 +997,28 @@ test "bigint sub-limb to" {
     const a = try BigInt.initSet(al, 10);
 
     debug.assert((try a.to(u8)) == 10);
+}
+
+test "bigint bitcount + sizeInBase" {
+    var a = try BigInt.init(al);
+
+    try a.set(0b100);
+    debug.assert(a.bitcount() == 3);
+    debug.assert(a.sizeInBase(2) >= 3);
+    debug.assert(a.sizeInBase(10) >= 1);
+
+    try a.set(0xffffffff);
+    debug.assert(a.bitcount() == 32);
+    debug.assert(a.sizeInBase(2) >= 32);
+    debug.assert(a.sizeInBase(10) >= 10);
+
+    try a.shiftLeft(&a, 5000);
+    debug.assert(a.bitcount() == 5032);
+    debug.assert(a.sizeInBase(2) >= 5032);
+    a.positive = false;
+
+    debug.assert(a.bitcount() == 5033);
+    debug.assert(a.sizeInBase(2) >= 5033);
 }
 
 test "bigint string set" {
