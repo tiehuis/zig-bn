@@ -61,20 +61,22 @@ fac-rs:  0:00.53 real, 0.53 user, 0.00 sys
 ```
 $ make run-facdiv
 ------ facdiv (llmul, lldiv1, divN) 
-facdiv-zig: 0:00.99 real, 0.98 user, 0.00 sys
-cfcd208495d565ef66e7dff9f98764da  -
+facdiv-zig: 0:00.98 real, 0.98 user, 0.00 sys
+d8c36f38bab8a24bfa641f8cfb6893f2  -
+     debug: 0:03.62 real, 3.62 user, 0.00 sys
+d8c36f38bab8a24bfa641f8cfb6893f2  -
 
 facdiv-c:   0:00.16 real, 0.16 user, 0.00 sys
-cfcd208495d565ef66e7dff9f98764da  -
+d8c36f38bab8a24bfa641f8cfb6893f2  -
 
-facdiv-go:  0:00.93 real, 0.93 user, 0.00 sys
-cfcd208495d565ef66e7dff9f98764da  -
+facdiv-go:  0:00.92 real, 0.92 user, 0.00 sys
+d8c36f38bab8a24bfa641f8cfb6893f2  -
 
-facdiv-py:  0:00.99 real, 0.99 user, 0.00 sys
-c4ca4238a0b923820dcc509a6f75849b  -
+facdiv-py:  0:00.98 real, 0.98 user, 0.00 sys
+d8c36f38bab8a24bfa641f8cfb6893f2  -
 
-facdiv-rs:  0:05.01 real, 4.98 user, 0.00 sys
-cfcd208495d565ef66e7dff9f98764da  -
+facdiv-rs:  0:00.81 real, 0.81 user, 0.00 sys
+d8c36f38bab8a24bfa641f8cfb6893f2  -
 ```
 
 ```
