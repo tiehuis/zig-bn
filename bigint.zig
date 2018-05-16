@@ -19,9 +19,6 @@ var global_buffer: [2048]u8 = undefined;
 //
 // This is used internally to wrap primitive or comptime integers into a stack-based BigInt.
 // This can only realistically fail at runtime if using a very large dynamic integer. Unlikely.
-//
-// TODO: How much efficiency do we lose on common operations here due to doing this conversion at
-// the start of each function? Is the ergonomics worth it?
 fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
     const T = @typeOf(bn);
     switch (@typeInfo(T)) {
