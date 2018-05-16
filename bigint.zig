@@ -283,18 +283,11 @@ pub const BigInt = struct {
             self.positive = true;
         }
 
-        var buffer: [128]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var b = try BigInt.initSet(&stack.allocator, base);
-        var p = try BigInt.init(&stack.allocator);
-
         try self.set(0);
         for (value[i..]) |ch| {
             const d = try charToDigit(ch, base);
-            try p.set(d);
-
-            try self.mul(self, &b);
-            try self.add(self, &p);
+            try self.mul(self, base);
+            try self.add(self, d);
         }
     }
 
@@ -701,12 +694,8 @@ pub const BigInt = struct {
 
         // Trunc -> Floor.
         if (!q.positive) {
-            var buffer: [128]u8 = undefined;
-            var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-            var one = try BigInt.initSet(&stack.allocator, 1);
-
-            try q.sub(q, &one);
-            try r.add(q, &one);
+            try q.sub(q, 1);
+            try r.add(q, 1);
         }
         r.positive = b.positive;
     }

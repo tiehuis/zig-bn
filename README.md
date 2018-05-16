@@ -21,5 +21,7 @@ pub fn main() !void {
 
     try a.add(&a, &b);
     try a.mul(&a, &b);
+
+    try a.mul(&a, 14343);
 }
 ```
