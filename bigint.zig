@@ -12,6 +12,45 @@ const Limb = usize;
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 const Log2Limb = math.Log2Int(Limb);
 
+// This is global now for no real reason. Should be thread-local.
+var global_buffer: [2048]u8 = undefined;
+
+// Copy-on-write integer.
+//
+// This is used internally to wrap primitive or comptime integers into a stack-based BigInt.
+// This can only realistically fail at runtime if using a very large dynamic integer. Unlikely.
+//
+// TODO: How much efficiency do we lose on common operations here due to doing this conversion at
+// the start of each function? Is the ergonomics worth it?
+fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
+    const T = @typeOf(bn);
+    switch (@typeInfo(T)) {
+        TypeId.Pointer => |info| {
+            if (info.child == BigInt) {
+                return bn;
+            } else {
+                @compileError("cannot set BigInt using type " ++ @typeName(T));
+            }
+        },
+        else => {
+            var s = allocator.create(BigInt) catch unreachable;
+            // TODO: In-place initialization function?
+            *s = BigInt {
+                .allocator = allocator,
+                .positive = false,
+                .limbs = block: {
+                    var limbs = allocator.alloc(Limb, 4) catch unreachable;
+                    limbs[0] = 0;
+                    break :block limbs;
+                },
+                .len = 1,
+            };
+            s.set(bn) catch unreachable;
+            return s;
+        }
+    }
+}
+
 pub const BigInt = struct {
     allocator: &Allocator,
     positive: bool,
@@ -343,7 +382,10 @@ pub const BigInt = struct {
     }
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
-    pub fn cmpAbs(a: &const BigInt, b: &const BigInt) i8 {
+    pub fn cmpAbs(a: &const BigInt, bv: var) i8 {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.len < b.len) {
             return -1;
         }
@@ -368,7 +410,10 @@ pub const BigInt = struct {
     }
 
     // returns -1, 0, 1 if a < b, a == b or a > b respectively.
-    pub fn cmp(a: &const BigInt, b: &const BigInt) i8 {
+    pub fn cmp(a: &const BigInt, bv: var) i8 {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.positive != b.positive) {
             return if (a.positive) i8(1) else -1;
         } else {
@@ -383,12 +428,12 @@ pub const BigInt = struct {
     }
 
     // if |a| == |b|
-    pub fn eqAbs(a: &const BigInt, b: &const BigInt) bool {
+    pub fn eqAbs(a: &const BigInt, b: var) bool {
         return cmpAbs(a, b) == 0;
     }
 
     // if a == b
-    pub fn eq(a: &const BigInt, b: &const BigInt) bool {
+    pub fn eq(a: &const BigInt, b: var) bool {
         return cmp(a, b) == 0;
     }
 
@@ -429,7 +474,11 @@ pub const BigInt = struct {
     }
 
     // r = a + b
-    pub fn add(r: &BigInt, a: &const BigInt, b: &const BigInt) Allocator.Error!void {
+    pub fn add(r: &BigInt, av: var, bv: var) Allocator.Error!void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.eqZero()) {
             try r.copy(b);
             return;
@@ -498,7 +547,11 @@ pub const BigInt = struct {
     }
 
     // r = a - b
-    pub fn sub(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn sub(r: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
@@ -562,7 +615,11 @@ pub const BigInt = struct {
     // rma = a * b
     //
     // For greatest efficiency, ensure rma does not alias a or b.
-    pub fn mul(rma: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn mul(rma: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         var r = rma;
         var aliased = rma == a or rma == b;
 
@@ -639,7 +696,7 @@ pub const BigInt = struct {
         }
     }
 
-    pub fn divFloor(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn divFloor(q: &BigInt, r: &BigInt, a: var, b: var) !void {
         try div(q, r, a, b);
 
         // Trunc -> Floor.
@@ -654,13 +711,17 @@ pub const BigInt = struct {
         r.positive = b.positive;
     }
 
-    pub fn divTrunc(q: &BigInt, r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn divTrunc(q: &BigInt, r: &BigInt, a: var, b: var) !void {
         try div(q, r, a, b);
         r.positive = a.positive;
     }
 
     // Truncates by default.
-    fn div(quo: &BigInt, rem: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    fn div(quo: &BigInt, rem: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (b.eqZero()) {
             @panic("division by zero");
         }
@@ -817,7 +878,10 @@ pub const BigInt = struct {
 
     // r = a << shift, in other words, r = a * 2^shift
     // TODO: We may want twos-complement shifting here.
-    pub fn shiftLeft(r: &BigInt, a: &const BigInt, shift: usize) !void {
+    pub fn shiftLeft(r: &BigInt, av: var, shift: usize) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
         r.norm1(a.len + (shift / Limb.bit_count) + 1);
@@ -849,7 +913,10 @@ pub const BigInt = struct {
 
     // r = a >> shift
     // TODO: We may want twos-complement shifting here.
-    pub fn shiftRight(r: &BigInt, a: &const BigInt, shift: usize) !void {
+    pub fn shiftRight(r: &BigInt, av: var, shift: usize) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+
         if (a.len <= shift / Limb.bit_count) {
             r.len = 1;
             r.limbs[0] = 0;
@@ -884,7 +951,11 @@ pub const BigInt = struct {
     }
 
     // r = a | b
-    pub fn bitOr(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn bitOr(r: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -911,7 +982,11 @@ pub const BigInt = struct {
     }
 
     // r = a & b
-    pub fn bitAnd(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn bitAnd(r: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.len > b.len) {
             try r.ensureCapacity(b.len);
             lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -935,7 +1010,11 @@ pub const BigInt = struct {
     }
 
     // r = a ^ b
-    pub fn bitXor(r: &BigInt, a: &const BigInt, b: &const BigInt) !void {
+    pub fn bitXor(r: &BigInt, av: var, bv: var) !void {
+        var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
+        var a = cowInt(&stack.allocator, av);
+        var b = cowInt(&stack.allocator, bv);
+
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -1691,4 +1770,14 @@ test "bigint bitwise or simple" {
     try a.bitOr(&a, &b);
 
     debug.assert((try a.to(u64)) == 0xffffffff33333333);
+}
+
+test "bigint var args" {
+    var a = try BigInt.initSet(al, 5);
+
+    try a.add(&a, 6);
+    debug.assert((try a.to(u64)) == 11);
+
+    debug.assert(a.cmp(11) == 0);
+    debug.assert(a.cmp(14) <= 0);
 }
