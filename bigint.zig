@@ -31,12 +31,11 @@ fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
         },
         else => {
             var s = allocator.create(BigInt) catch unreachable;
-            // TODO: In-place initialization function?
             *s = BigInt {
                 .allocator = allocator,
                 .positive = false,
                 .limbs = block: {
-                    var limbs = allocator.alloc(Limb, 4) catch unreachable;
+                    var limbs = allocator.alloc(Limb, BigInt.default_capacity) catch unreachable;
                     limbs[0] = 0;
                     break :block limbs;
                 },
