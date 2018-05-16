@@ -99,6 +99,14 @@ pub const BigInt = struct {
         r.positive = true;
     }
 
+    pub fn isOdd(r: &const BigInt) bool {
+        return r.limbs[0] & 1 != 0;
+    }
+
+    pub fn isEven(r: &const BigInt) bool {
+        return !r.isOdd();
+    }
+
     fn bitcount(self: &const BigInt) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
         return usize(!self.positive) + u_bit_count;
@@ -997,6 +1005,17 @@ test "bigint sub-limb to" {
     const a = try BigInt.initSet(al, 10);
 
     debug.assert((try a.to(u8)) == 10);
+}
+
+test "bigint parity" {
+    var a = try BigInt.init(al);
+    try a.set(0);
+    debug.assert(a.isEven());
+    debug.assert(!a.isOdd());
+
+    try a.set(7);
+    debug.assert(!a.isEven());
+    debug.assert(a.isOdd());
 }
 
 test "bigint bitcount + sizeInBase" {
