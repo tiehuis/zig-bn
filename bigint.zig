@@ -863,7 +863,6 @@ pub const BigInt = struct {
     }
 
     // r = a << shift, in other words, r = a * 2^shift
-    // TODO: We may want twos-complement shifting here.
     pub fn shiftLeft(r: &BigInt, av: var, shift: usize) !void {
         var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
         var a = cowInt(&stack.allocator, av);
@@ -898,7 +897,6 @@ pub const BigInt = struct {
     }
 
     // r = a >> shift
-    // TODO: We may want twos-complement shifting here.
     pub fn shiftRight(r: &BigInt, av: var, shift: usize) !void {
         var stack = std.heap.FixedBufferAllocator.init(global_buffer[0..]);
         var a = cowInt(&stack.allocator, av);
@@ -1729,6 +1727,23 @@ test "bigint shift-left multi" {
     try a.shiftLeft(a, 67);
 
     debug.assert((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
+}
+
+test "bigint shift-right negative" {
+    var a = try BigInt.init(al);
+
+    try a.shiftRight(-20, 2);
+    debug.assert((try a.to(i32)) == -20 >> 2);
+
+    try a.shiftRight(-5, 10);
+    debug.assert((try a.to(i32)) == -5 >> 10);
+}
+
+test "bigint shift-left negative" {
+    var a = try BigInt.init(al);
+
+    try a.shiftRight(-10, 1232);
+    debug.assert((try a.to(i32)) == -10 >> 1232);
 }
 
 test "bigint bitwise and simple" {
