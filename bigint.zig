@@ -21,8 +21,10 @@ pub const BigInt = struct {
     limbs: []Limb,
     len: usize,
 
+    const default_capacity = 4;
+
     pub fn init(allocator: &Allocator) !BigInt {
-        return try BigInt.initCapacity(allocator, 4);
+        return try BigInt.initCapacity(allocator, default_capacity);
     }
 
     pub fn initSet(allocator: &Allocator, value: var) !BigInt {
@@ -36,7 +38,7 @@ pub const BigInt = struct {
             .allocator = allocator,
             .positive = false,
             .limbs = block: {
-                var limbs = try allocator.alloc(Limb, capacity);
+                var limbs = try allocator.alloc(Limb, math.max(default_capacity, capacity));
                 limbs[0] = 0;
                 break :block limbs;
             },
@@ -86,9 +88,9 @@ pub const BigInt = struct {
 
     pub fn dump(self: &const BigInt) void {
         for (self.limbs) |limb| {
-            std.debug.warn("{x} ", limb);
+            debug.warn("{x} ", limb);
         }
-        std.debug.warn("\n");
+        debug.warn("\n");
     }
 
     pub fn negate(r: &BigInt) void {
@@ -320,7 +322,7 @@ pub const BigInt = struct {
             }
 
             {
-                std.debug.assert(q.len == 1);
+                debug.assert(q.len == 1);
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
@@ -396,10 +398,10 @@ pub const BigInt = struct {
     // [1, 2, 3, 4, 5] -> [1, 2, 3, 4, 5]
     // [0]             -> [0]
     fn norm1(r: &BigInt, length: usize) void {
-        std.debug.assert(length > 0);
+        debug.assert(length > 0);
 
         if (r.limbs[length - 1] == 0) {
-            std.debug.assert(length == 1 or r.limbs[length - 2] != 0);
+            debug.assert(length == 1 or r.limbs[length - 2] != 0);
             r.len = length - 1;
         } else {
             r.len = length;
@@ -412,8 +414,8 @@ pub const BigInt = struct {
     // [1, 2, 0, 0, 0] -> [1, 2]
     // [0, 0, 0, 0, 0] -> [0]
     fn normN(r: &BigInt, length: usize) void {
-        std.debug.assert(length > 0);
-        std.debug.assert(length <= r.limbs.len);
+        debug.assert(length > 0);
+        debug.assert(length <= r.limbs.len);
 
         var j = length;
         while (j > 0) : (j -= 1) {
@@ -733,19 +735,14 @@ pub const BigInt = struct {
     //
     // x = qy + r where 0 <= r < y
     fn divN(allocator: &Allocator, q: &BigInt, r: &BigInt, x: &BigInt, y: &BigInt) !void {
-        std.debug.assert(q.limbs.len >= x.len + 1);
-        std.debug.assert(x.len >= y.len);
-
-        const b = 1 << Limb.bit_count;
+        debug.assert(q.limbs.len >= x.len + 1);
+        debug.assert(x.len >= y.len);
+        debug.assert(default_capacity >= 3);    // see 3.2
 
         var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
 
-        // minimum bounds for step 3.2
-        try tmp.ensureCapacity(3);
-        try r.ensureCapacity(3);
-
-        // Normalize so y > b/2 (i.e. leading bit is set)
+        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
         const norm_shift = @clz(y.limbs[y.len - 1]);
         try x.shiftLeft(x, norm_shift);
         try y.shiftLeft(y, norm_shift);
@@ -769,9 +766,9 @@ pub const BigInt = struct {
         while (i > t) : (i -= 1) {
             // 3.1
             if (x.limbs[i] == y.limbs[t]) {
-                q.limbs[i-t-1] = b - 1;
+                q.limbs[i-t-1] = @maxValue(Limb);
             } else {
-                const num = DoubleLimb(x.limbs[i]) * b + DoubleLimb(x.limbs[i-1]);
+                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) + DoubleLimb(x.limbs[i-1]);
                 q.limbs[i-t-1] = Limb(@divTrunc(num, DoubleLimb(y.limbs[t])));
             }
 
