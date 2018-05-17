@@ -31,7 +31,7 @@ fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
         },
         else => {
             var s = allocator.create(BigInt) catch unreachable;
-            *s = BigInt {
+            *s = BigInt{
                 .allocator = allocator,
                 .positive = false,
                 .limbs = block: {
@@ -43,7 +43,7 @@ fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
             };
             s.set(bn) catch unreachable;
             return s;
-        }
+        },
     }
 }
 
@@ -69,7 +69,7 @@ pub const BigInt = struct {
     }
 
     pub fn initCapacity(allocator: &Allocator, capacity: usize) !BigInt {
-        return BigInt {
+        return BigInt{
             .allocator = allocator,
             .positive = false,
             .limbs = block: {
@@ -94,7 +94,7 @@ pub const BigInt = struct {
     }
 
     pub fn clone(other: &const BigInt) !BigInt {
-        return BigInt {
+        return BigInt{
             .allocator = other.allocator,
             .positive = other.positive,
             .limbs = block: {
@@ -322,8 +322,7 @@ pub const BigInt = struct {
                     break;
                 }
             }
-        }
-        // Non power-of-two: batch divisions per word size.
+        } // Non power-of-two: batch divisions per word size.
         else {
             const digits_per_limb = math.log(Limb, base, @maxValue(Limb));
             var limb_base: Limb = 1;
@@ -479,7 +478,7 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
-                const bp = BigInt {
+                const bp = BigInt{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -488,7 +487,7 @@ pub const BigInt = struct {
                 try r.sub(a, bp);
             } else {
                 // (-a) + (b) => b - a
-                const ap = BigInt {
+                const ap = BigInt{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
@@ -544,7 +543,7 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
-                const bp = BigInt {
+                const bp = BigInt{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -553,7 +552,7 @@ pub const BigInt = struct {
                 try r.add(a, bp);
             } else {
                 // (-a) - (b) => -(a + b)
-                const ap = BigInt {
+                const ap = BigInt{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
@@ -672,16 +671,16 @@ pub const BigInt = struct {
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + b.len);
 
-        mem.set(Limb, r[0 .. a.len + b.len], 0);
+        mem.set(Limb, r[0..a.len + b.len], 0);
 
         var i: usize = 0;
         while (i < a.len) : (i += 1) {
             var carry: Limb = 0;
             var j: usize = 0;
             while (j < b.len) : (j += 1) {
-                r[i+j] = @inlineCall(addMulLimbWithCarry, r[i+j], a[i], b[j], &carry);
+                r[i + j] = @inlineCall(addMulLimbWithCarry, r[i + j], a[i], b[j], &carry);
             }
-            r[i+j] = carry;
+            r[i + j] = carry;
         }
     }
 
@@ -783,7 +782,7 @@ pub const BigInt = struct {
     fn divN(allocator: &Allocator, q: &BigInt, r: &BigInt, x: &BigInt, y: &BigInt) !void {
         debug.assert(q.limbs.len >= x.len + 1);
         debug.assert(x.len >= y.len);
-        debug.assert(default_capacity >= 3);    // see 3.2
+        debug.assert(default_capacity >= 3); // see 3.2
 
         var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
@@ -803,7 +802,7 @@ pub const BigInt = struct {
         // 2.
         try tmp.shiftLeft(y, Limb.bit_count * (n - t));
         while (x.cmp(&tmp) >= 0) {
-            q.limbs[n-t] += 1;
+            q.limbs[n - t] += 1;
             try x.sub(x, tmp);
         }
 
@@ -812,25 +811,25 @@ pub const BigInt = struct {
         while (i > t) : (i -= 1) {
             // 3.1
             if (x.limbs[i] == y.limbs[t]) {
-                q.limbs[i-t-1] = @maxValue(Limb);
+                q.limbs[i - t - 1] = @maxValue(Limb);
             } else {
-                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) + DoubleLimb(x.limbs[i-1]);
-                q.limbs[i-t-1] = Limb(@divTrunc(num, DoubleLimb(y.limbs[t])));
+                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) + DoubleLimb(x.limbs[i - 1]);
+                q.limbs[i - t - 1] = Limb(@divTrunc(num, DoubleLimb(y.limbs[t])));
             }
 
             // 3.2
             //
             // We use r as a temporary since it is unused otherwise.
-            tmp.limbs[0] = if (t >= 2) x.limbs[t-2] else 0;
-            tmp.limbs[1] = if (t >= 1) x.limbs[t-1] else 0;
+            tmp.limbs[0] = if (t >= 2) x.limbs[t - 2] else 0;
+            tmp.limbs[1] = if (t >= 1) x.limbs[t - 1] else 0;
             tmp.limbs[2] = x.limbs[t];
             tmp.normN(3);
 
             while (true) {
                 // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
                 var carry: Limb = 0;
-                r.limbs[0] = addMulLimbWithCarry(0, if (t >= 1) y.limbs[t-1] else 0, q.limbs[i-t-1], &carry);
-                r.limbs[1] = addMulLimbWithCarry(carry, y.limbs[t], q.limbs[i-t-1], &carry);
+                r.limbs[0] = addMulLimbWithCarry(0, if (t >= 1) y.limbs[t - 1] else 0, q.limbs[i - t - 1], &carry);
+                r.limbs[1] = addMulLimbWithCarry(carry, y.limbs[t], q.limbs[i - t - 1], &carry);
                 r.limbs[2] = carry;
                 r.normN(3);
 
@@ -838,11 +837,11 @@ pub const BigInt = struct {
                     break;
                 }
 
-                q.limbs[i-t-1] -= 1;
+                q.limbs[i - t - 1] -= 1;
             }
 
             // 3.3
-            try tmp.set(q.limbs[i-t-1]);
+            try tmp.set(q.limbs[i - t - 1]);
             try tmp.mul(&tmp, y);
             try tmp.shiftLeft(&tmp, Limb.bit_count * (i - t - 1));
             try x.sub(x, &tmp);
@@ -850,7 +849,7 @@ pub const BigInt = struct {
             if (!x.positive) {
                 try tmp.shiftLeft(y, Limb.bit_count * (i - t - 1));
                 try x.add(x, &tmp);
-                q.limbs[i-t-1] -= 1;
+                q.limbs[i - t - 1] -= 1;
             }
         }
 
@@ -892,7 +891,7 @@ pub const BigInt = struct {
         }
 
         r[limb_shift - 1] = carry;
-        mem.set(Limb, r[0 .. limb_shift - 1], 0);
+        mem.set(Limb, r[0..limb_shift - 1], 0);
     }
 
     // r = a >> shift
@@ -1196,7 +1195,7 @@ test "bigint compare multi-limb" {
 
     debug.assert(a.cmpAbs(&b) == 1);
     debug.assert(a.cmp(&b) == -1);
- }
+}
 
 test "bigint equality" {
     var a = try BigInt.initSet(al, 0xffffffff1);
