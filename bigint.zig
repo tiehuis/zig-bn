@@ -31,7 +31,7 @@ fn cowInt(allocator: &Allocator, bn: var) &const BigInt {
         },
         else => {
             var s = allocator.create(BigInt) catch unreachable;
-            *s = BigInt{
+            s.* = BigInt{
                 .allocator = allocator,
                 .positive = false,
                 .limbs = block: {
@@ -639,7 +639,7 @@ pub const BigInt = struct {
         var r1: Limb = undefined;
 
         // r1 = a + *carry
-        const c1 = Limb(@addWithOverflow(Limb, a, *carry, &r1));
+        const c1 = Limb(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
         //
@@ -658,7 +658,7 @@ pub const BigInt = struct {
 
         // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
         // c2 is at least <= @maxValue(Limb) - 2.
-        *carry = c1 + c2 + c3;
+        carry.* = c1 + c2 + c3;
 
         return r1;
     }
@@ -755,23 +755,23 @@ pub const BigInt = struct {
         debug.assert(a.len > 1 or a[0] >= b);
         debug.assert(quo.len >= a.len);
 
-        *rem = 0;
+        rem.* = 0;
         for (a) |_, ri| {
             const i = a.len - ri - 1;
-            const pdiv = ((DoubleLimb(*rem) << Limb.bit_count) | a[i]);
+            const pdiv = ((DoubleLimb(rem.*) << Limb.bit_count) | a[i]);
 
             if (pdiv == 0) {
                 quo[i] = 0;
-                *rem = 0;
+                rem.* = 0;
             } else if (pdiv < b) {
                 quo[i] = 0;
-                *rem = @truncate(Limb, pdiv);
+                rem.* = @truncate(Limb, pdiv);
             } else if (pdiv == b) {
                 quo[i] = 1;
-                *rem = 0;
+                rem.* = 0;
             } else {
                 quo[i] = @truncate(Limb, @divTrunc(pdiv, b));
-                *rem = @truncate(Limb, pdiv - (quo[i] *% b));
+                rem.* = @truncate(Limb, pdiv - (quo[i] *% b));
             }
         }
     }
