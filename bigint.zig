@@ -272,11 +272,10 @@ pub const BigInt = struct {
         }
 
         var i: usize = 0;
+        var positive = true;
         if (value.len > 0 and value[0] == '-') {
-            self.positive = false;
+            positive = false;
             i += 1;
-        } else {
-            self.positive = true;
         }
 
         try self.set(0);
@@ -285,6 +284,7 @@ pub const BigInt = struct {
             try self.mul(self, base);
             try self.add(self, d);
         }
+        self.positive = positive;
     }
 
     pub fn toString(self: &const BigInt, allocator: &Allocator, base: u8) ![]const u8 {
@@ -562,17 +562,33 @@ pub const BigInt = struct {
                 r.positive = false;
             }
         } else {
-            if (a.cmp(b) >= 0) {
-                try r.ensureCapacity(a.len + 1);
-                llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                r.normN(a.len);
+            if (a.positive) {
+                // (a) - (b) => a - b
+                if (a.cmp(b) >= 0) {
+                    try r.ensureCapacity(a.len + 1);
+                    llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+                    r.normN(a.len);
+                    r.positive = true;
+                } else {
+                    try r.ensureCapacity(b.len + 1);
+                    llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+                    r.normN(b.len);
+                    r.positive = false;
+                }
             } else {
-                try r.ensureCapacity(b.len + 1);
-                llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                r.normN(b.len);
+                // (-a) - (-b) => -(a - b)
+                if (a.cmp(b) < 0) {
+                    try r.ensureCapacity(a.len + 1);
+                    llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
+                    r.normN(a.len);
+                    r.positive = false;
+                } else {
+                    try r.ensureCapacity(b.len + 1);
+                    llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
+                    r.normN(b.len);
+                    r.positive = true;
+                }
             }
-
-            r.positive = a.positive;
         }
     }
 
@@ -1105,6 +1121,22 @@ test "bigint string set" {
     debug.assert((try a.to(u128)) == 120317241209124781241290847124);
 }
 
+test "bigint string negative" {
+    var a = try BigInt.init(al);
+    try a.setString(10, "-1023");
+    debug.assert((try a.to(i32)) == -1023);
+}
+
+test "bigint string set bad char error" {
+    var a = try BigInt.init(al);
+    a.setString(10, "x") catch |err| debug.assert(err == error.InvalidCharForDigit);
+}
+
+test "bigint string set bad base error" {
+    var a = try BigInt.init(al);
+    a.setString(45, "10") catch |err| debug.assert(err == error.InvalidBase);
+}
+
 test "bigint string to" {
     const a = try BigInt.initSet(al, 120317241209124781241290847124);
 
@@ -1189,6 +1221,22 @@ test "bigint compare" {
     debug.assert(a.cmp(&b) == -1);
 }
 
+test "bigint compare similar" {
+    var a = try BigInt.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeee);
+    var b = try BigInt.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeef);
+
+    debug.assert(a.cmpAbs(&b) == -1);
+    debug.assert(b.cmpAbs(&a) == 1);
+}
+
+test "bigint compare different limb size" {
+    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
+    var b = try BigInt.initSet(al, 1);
+
+    debug.assert(a.cmpAbs(&b) == 1);
+    debug.assert(b.cmpAbs(&a) == -1);
+}
+
 test "bigint compare multi-limb" {
     var a = try BigInt.initSet(al, -0x7777777799999999ffffeeeeffffeeeeffffeeeef);
     var b = try BigInt.initSet(al, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
@@ -1236,13 +1284,16 @@ test "bigint add single-single" {
 }
 
 test "bigint add multi-single" {
-    var a = try BigInt.initSet(al, @maxValue(Limb));
+    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
     var b = try BigInt.initSet(al, 1);
 
     var c = try BigInt.init(al);
-    try c.add(&a, &b);
 
-    debug.assert((try c.to(u128)) == @maxValue(Limb) + 1);
+    try c.add(&a, &b);
+    debug.assert((try c.to(u128)) == @maxValue(Limb) + 2);
+
+    try c.add(&b, &a);
+    debug.assert((try c.to(u128)) == @maxValue(Limb) + 2);
 }
 
 test "bigint add multi-multi" {
@@ -1275,6 +1326,22 @@ test "bigint add alias multi-limb nonzero-zero" {
     try a.add(&a, &b);
 
     debug.assert((try a.to(u128)) == op1);
+}
+
+test "bigint add sign" {
+    var a = try BigInt.init(al);
+
+    try a.add(1, 2);
+    debug.assert((try a.to(i32)) == 3);
+
+    try a.add(-1, 2);
+    debug.assert((try a.to(i32)) == 1);
+
+    try a.add(1, -2);
+    debug.assert((try a.to(i32)) == -1);
+
+    try a.add(-1, -2);
+    debug.assert((try a.to(i32)) == -3);
 }
 
 test "bigint sub single-single" {
@@ -1318,6 +1385,25 @@ test "bigint sub equal" {
     try c.sub(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
+}
+
+test "bigint sub sign" {
+    var a = try BigInt.init(al);
+
+    try a.sub(1, 2);
+    debug.assert((try a.to(i32)) == -1);
+
+    try a.sub(-1, 2);
+    debug.assert((try a.to(i32)) == -3);
+
+    try a.sub(1, -2);
+    debug.assert((try a.to(i32)) == 3);
+
+    try a.sub(-1, -2);
+    debug.assert((try a.to(i32)) == 1);
+
+    try a.sub(-2, -1);
+    debug.assert((try a.to(i32)) == -1);
 }
 
 test "bigint mul single-single" {
@@ -1753,6 +1839,15 @@ test "bigint bitwise and simple" {
     debug.assert((try a.to(u64)) == 0xeeeeeeee00000000);
 }
 
+test "bigint bitwise and multi-limb" {
+    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
+    var b = try BigInt.initSet(al, @maxValue(Limb));
+
+    try a.bitAnd(&a, &b);
+
+    debug.assert((try a.to(u128)) == 0);
+}
+
 test "bigint bitwise xor simple" {
     var a = try BigInt.initSet(al, 0xffffffff11111111);
     var b = try BigInt.initSet(al, 0xeeeeeeee22222222);
@@ -1762,6 +1857,15 @@ test "bigint bitwise xor simple" {
     debug.assert((try a.to(u64)) == 0x1111111133333333);
 }
 
+test "bigint bitwise xor multi-limb" {
+    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
+    var b = try BigInt.initSet(al, @maxValue(Limb));
+
+    try a.bitXor(&a, &b);
+
+    debug.assert((try a.to(u128)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
+}
+
 test "bigint bitwise or simple" {
     var a = try BigInt.initSet(al, 0xffffffff11111111);
     var b = try BigInt.initSet(al, 0xeeeeeeee22222222);
@@ -1769,6 +1873,16 @@ test "bigint bitwise or simple" {
     try a.bitOr(&a, &b);
 
     debug.assert((try a.to(u64)) == 0xffffffff33333333);
+}
+
+test "bigint bitwise or multi-limb" {
+    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
+    var b = try BigInt.initSet(al, @maxValue(Limb));
+
+    try a.bitOr(&a, &b);
+
+    // TODO: bigint.cpp or is different on multi-limb.
+    debug.assert((try a.to(u128)) == 0x1ffffffffffffffff);
 }
 
 test "bigint var args" {
