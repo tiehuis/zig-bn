@@ -9,12 +9,11 @@ pub fn main() !void {
 
     var f = try BigInt.initSet(allocator, 1);
     var c = try BigInt.initSet(allocator, 1);
-    var one = try BigInt.initSet(allocator, 1);
 
     var i: usize = 0;
     while (i < target) : (i += 1) {
         try f.mul(&f, &c);
-        try c.add(&c, &one);
+        try c.add(&c, 1);
     }
 
     const ss1 = try f.toString(allocator, 16);
@@ -25,7 +24,7 @@ pub fn main() !void {
 
     i = target - 1;
     while (i != 0) : (i -= 1) {
-        try c.sub(&c, &one);
+        try c.sub(&c, 1);
         try f.div(&r, &f, &c);
     }
 
