@@ -178,7 +178,7 @@ pub const BigInt = struct {
                     }
                 }
             },
-            TypeId.IntLiteral => {
+            TypeId.ComptimeInt => {
                 var ilimbs = ArrayList(Limb).init(self.allocator);
                 defer ilimbs.deinit();
 
