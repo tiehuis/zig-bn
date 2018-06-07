@@ -802,8 +802,9 @@ pub const BigInt = struct {
     //
     // x = qy + r where 0 <= r < y
     fn divN(allocator: *Allocator, q: *BigInt, r: *BigInt, x: *BigInt, y: *BigInt) !void {
-        debug.assert(q.limbs.len >= x.len + 1);
+        debug.assert(y.len >= 2);
         debug.assert(x.len >= y.len);
+        debug.assert(q.limbs.len >= x.len + y.len - 1);
         debug.assert(default_capacity >= 3); // see 3.2
 
         var tmp = try BigInt.init(allocator);
@@ -818,7 +819,7 @@ pub const BigInt = struct {
         const t = y.len - 1;
 
         // 1.
-        q.len = x.len + 1;
+        q.len = n - t + 1;
         mem.set(Limb, q.limbs[0..q.len], 0);
 
         // 2.
@@ -835,8 +836,9 @@ pub const BigInt = struct {
             if (x.limbs[i] == y.limbs[t]) {
                 q.limbs[i - t - 1] = @maxValue(Limb);
             } else {
-                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) + DoubleLimb(x.limbs[i - 1]);
-                q.limbs[i - t - 1] = Limb(num / DoubleLimb(y.limbs[t]));
+                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
+                const z = Limb(num / DoubleLimb(y.limbs[t]));
+                q.limbs[i - t - 1] = if (z > @maxValue(Limb)) @maxValue(Limb) else Limb(z);
             }
 
             // 3.2
@@ -849,7 +851,7 @@ pub const BigInt = struct {
                 // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
                 var carry: Limb = 0;
                 r.limbs[0] = addMulLimbWithCarry(0, if (t >= 1) y.limbs[t - 1] else 0, q.limbs[i - t - 1], &carry);
-                r.limbs[1] = addMulLimbWithCarry(carry, y.limbs[t], q.limbs[i - t - 1], &carry);
+                r.limbs[1] = addMulLimbWithCarry(0, y.limbs[t], q.limbs[i - t - 1], &carry);
                 r.limbs[2] = carry;
                 r.normN(3);
 
@@ -1778,8 +1780,8 @@ test "bigint div multi-multi with rem" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
-    // debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
-    // debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
+    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
 }
 
 test "bigint div multi-mutli no rem" {
@@ -1790,8 +1792,8 @@ test "bigint div multi-mutli no rem" {
     var r = try BigInt.init(al);
     try BigInt.divTrunc(&q, &r, &a, &b);
 
-    // debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
-    // debug.assert((try r.to(u128)) == 0);
+    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    debug.assert((try r.to(u128)) == 0);
 }
 
 test "bigint shift-right single" {
