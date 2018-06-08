@@ -1092,6 +1092,16 @@ test "bigint sub-limb to" {
     debug.assert((try a.to(u8)) == 10);
 }
 
+test "bigint to target too small error" {
+    const a = try BigInt.initSet(al, 0xffffffff);
+
+    if (a.to(u8)) |_| {
+        unreachable;
+    } else |err| {
+        debug.assert(err == error.TargetTooSmall);
+    }
+}
+
 test "bigint norm1" {
     var a = try BigInt.init(al);
     try a.ensureCapacity(8);
@@ -1211,6 +1221,16 @@ test "bigint string to" {
     const es = "120317241209124781241290847124";
 
     debug.assert(mem.eql(u8, as, es));
+}
+
+test "bigint string to base base error" {
+    const a = try BigInt.initSet(al, 0xffffffff);
+
+    if (a.toString(al, 45)) |_| {
+        unreachable;
+    } else |err| {
+        debug.assert(err == error.InvalidBase);
+    }
 }
 
 test "bigint string to base 2" {
