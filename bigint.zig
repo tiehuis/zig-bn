@@ -12,6 +12,12 @@ const Limb = usize;
 const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
 const Log2Limb = math.Log2Int(Limb);
 
+comptime {
+    debug.assert(math.floorPowerOfTwo(usize, Limb.bit_count) == Limb.bit_count);
+    debug.assert(Limb.bit_count <= 64); // u128 set is unsupported
+    debug.assert(Limb.is_signed == false);
+}
+
 const cow_buffer_size = 512;
 
 // Copy-on-write integer.
@@ -157,21 +163,24 @@ pub const BigInt = struct {
 
         switch (@typeInfo(T)) {
             TypeId.Int => |info| {
-                try self.ensureCapacity(@sizeOf(T) / @sizeOf(Limb));
+                const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
+
+                try self.ensureCapacity(@sizeOf(UT) / @sizeOf(Limb));
                 self.positive = value >= 0;
                 self.len = 0;
 
-                var w_value = if (value < 0) -value else value;
+                var w_value: UT = if (value < 0) UT(-value) else UT(value);
 
                 if (info.bits <= Limb.bit_count) {
                     self.limbs[0] = Limb(w_value);
                     self.len = 1;
                 } else {
-                    while (w_value != 0) |i| {
+                    var i: usize = 0;
+                    while (w_value != 0) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
                         self.len += 1;
 
-                        // TODO: shift == 64 at compile-time fails. Need to fix.
+                        // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
                         w_value >>= Limb.bit_count / 2;
                         w_value >>= Limb.bit_count / 2;
                     }
@@ -206,7 +215,7 @@ pub const BigInt = struct {
         }
     }
 
-    const ConvertError = error{
+    pub const ConvertError = error{
         NegativeIntoUnsigned,
         TargetTooSmall,
     };
@@ -214,14 +223,16 @@ pub const BigInt = struct {
     pub fn to(self: *const BigInt, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                if (self.bitcount() > 8 * @sizeOf(T)) {
+                const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
+
+                if (self.bitcount() > 8 * @sizeOf(UT)) {
                     return error.TargetTooSmall;
                 }
 
-                var r: T = 0;
+                var r: UT = 0;
 
-                if (@sizeOf(T) <= @sizeOf(Limb)) {
-                    r = T(self.limbs[0]);
+                if (@sizeOf(UT) <= @sizeOf(Limb)) {
+                    r = UT(self.limbs[0]);
                 } else {
                     for (self.limbs[0..self.len]) |_, ri| {
                         const limb = self.limbs[self.len - ri - 1];
@@ -233,7 +244,7 @@ pub const BigInt = struct {
                 if (!T.is_signed) {
                     return if (self.positive) r else error.NegativeIntoUnsigned;
                 } else {
-                    return if (self.positive) r else -r;
+                    return if (self.positive) T(r) else -T(r);
                 }
             },
             else => {
@@ -763,7 +774,7 @@ pub const BigInt = struct {
             defer y.deinit();
 
             // x may grow one limb during normalization
-            try quo.ensureCapacity(a.len + 2);
+            try quo.ensureCapacity(a.len + y.len);
             try divN(quo.allocator, quo, rem, &x, &y);
 
             quo.positive = a.positive == b.positive;
@@ -1383,10 +1394,10 @@ test "bigint add multi-single" {
     var c = try BigInt.init(al);
 
     try c.add(&a, &b);
-    debug.assert((try c.to(u128)) == @maxValue(Limb) + 2);
+    debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
 
     try c.add(&b, &a);
-    debug.assert((try c.to(u128)) == @maxValue(Limb) + 2);
+    debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
 }
 
 test "bigint add multi-multi" {
@@ -1454,7 +1465,7 @@ test "bigint sub multi-single" {
     var c = try BigInt.init(al);
     try c.sub(&a, &b);
 
-    debug.assert((try c.to(u64)) == @maxValue(Limb));
+    debug.assert((try c.to(Limb)) == @maxValue(Limb));
 }
 
 test "bigint sub multi-multi" {
@@ -1516,7 +1527,7 @@ test "bigint mul multi-single" {
     var c = try BigInt.init(al);
     try c.mul(&a, &b);
 
-    debug.assert((try c.to(u128)) == 2 * @maxValue(Limb));
+    debug.assert((try c.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
 test "bigint mul multi-multi" {
@@ -1537,7 +1548,7 @@ test "bigint mul alias r with a" {
 
     try a.mul(&a, &b);
 
-    debug.assert((try a.to(u128)) == 2 * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
 test "bigint mul alias r with b" {
@@ -1546,7 +1557,7 @@ test "bigint mul alias r with b" {
 
     try a.mul(&b, &a);
 
-    debug.assert((try a.to(u128)) == 2 * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
 test "bigint mul alias r with a and b" {
@@ -1554,7 +1565,7 @@ test "bigint mul alias r with a and b" {
 
     try a.mul(&a, &a);
 
-    debug.assert((try a.to(u128)) == @maxValue(Limb) * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == @maxValue(Limb) * @maxValue(Limb));
 }
 
 test "bigint mul a*0" {
@@ -1980,7 +1991,7 @@ test "bigint bitwise xor multi-limb" {
 
     try a.bitXor(&a, &b);
 
-    debug.assert((try a.to(u128)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
 }
 
 test "bigint bitwise or simple" {
@@ -1998,8 +2009,8 @@ test "bigint bitwise or multi-limb" {
 
     try a.bitOr(&a, &b);
 
-    // TODO: bigint.cpp or is different on multi-limb.
-    debug.assert((try a.to(u128)) == 0x1ffffffffffffffff);
+    // TODO: bigint.cpp or is wrong on multi-limb.
+    debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) + @maxValue(Limb));
 }
 
 test "bigint var args" {
