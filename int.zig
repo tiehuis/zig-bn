@@ -21,25 +21,25 @@ comptime {
 const wrapped_buffer_size = 512;
 
 // Converts primitive integer values onto a stack-based big integer, or passes through existing
-// BigInt types with no modifications. This can fail at runtime if using a very large dynamic
+// Int types with no modifications. This can fail at runtime if using a very large dynamic
 // integer but it is very unlikely and is considered a user error.
-fn wrapInt(allocator: *Allocator, bn: var) *const BigInt {
+fn wrapInt(allocator: *Allocator, bn: var) *const Int {
     const T = @typeOf(bn);
     switch (@typeInfo(T)) {
         TypeId.Pointer => |info| {
-            if (info.child == BigInt) {
+            if (info.child == Int) {
                 return bn;
             } else {
-                @compileError("cannot set BigInt using type " ++ @typeName(T));
+                @compileError("cannot set Int using type " ++ @typeName(T));
             }
         },
         else => {
-            var s = allocator.create(BigInt) catch unreachable;
-            s.* = BigInt{
+            var s = allocator.create(Int) catch unreachable;
+            s.* = Int{
                 .allocator = allocator,
                 .positive = false,
                 .limbs = block: {
-                    var limbs = allocator.alloc(Limb, BigInt.default_capacity) catch unreachable;
+                    var limbs = allocator.alloc(Limb, Int.default_capacity) catch unreachable;
                     limbs[0] = 0;
                     break :block limbs;
                 },
@@ -51,7 +51,7 @@ fn wrapInt(allocator: *Allocator, bn: var) *const BigInt {
     }
 }
 
-pub const BigInt = struct {
+pub const Int = struct {
     allocator: *Allocator,
     positive: bool,
     //  - little-endian ordered
@@ -62,18 +62,18 @@ pub const BigInt = struct {
 
     const default_capacity = 4;
 
-    pub fn init(allocator: *Allocator) !BigInt {
-        return try BigInt.initCapacity(allocator, default_capacity);
+    pub fn init(allocator: *Allocator) !Int {
+        return try Int.initCapacity(allocator, default_capacity);
     }
 
-    pub fn initSet(allocator: *Allocator, value: var) !BigInt {
-        var s = try BigInt.init(allocator);
+    pub fn initSet(allocator: *Allocator, value: var) !Int {
+        var s = try Int.init(allocator);
         try s.set(value);
         return s;
     }
 
-    pub fn initCapacity(allocator: *Allocator, capacity: usize) !BigInt {
-        return BigInt{
+    pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
+        return Int{
             .allocator = allocator,
             .positive = true,
             .limbs = block: {
@@ -85,7 +85,7 @@ pub const BigInt = struct {
         };
     }
 
-    pub fn ensureCapacity(self: *BigInt, capacity: usize) !void {
+    pub fn ensureCapacity(self: *Int, capacity: usize) !void {
         if (capacity <= self.limbs.len) {
             return;
         }
@@ -93,12 +93,12 @@ pub const BigInt = struct {
         self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
-    pub fn deinit(self: *const BigInt) void {
+    pub fn deinit(self: *const Int) void {
         self.allocator.free(self.limbs);
     }
 
-    pub fn clone(other: *const BigInt) !BigInt {
-        return BigInt{
+    pub fn clone(other: *const Int) !Int {
+        return Int{
             .allocator = other.allocator,
             .positive = other.positive,
             .limbs = block: {
@@ -110,7 +110,7 @@ pub const BigInt = struct {
         };
     }
 
-    pub fn copy(self: *BigInt, other: *const BigInt) !void {
+    pub fn copy(self: *Int, other: *const Int) !void {
         if (self == other) {
             return;
         }
@@ -121,43 +121,43 @@ pub const BigInt = struct {
         self.len = other.len;
     }
 
-    pub fn swap(self: *BigInt, other: *BigInt) void {
-        mem.swap(BigInt, self, other);
+    pub fn swap(self: *Int, other: *Int) void {
+        mem.swap(Int, self, other);
     }
 
-    pub fn dump(self: *const BigInt) void {
+    pub fn dump(self: *const Int) void {
         for (self.limbs) |limb| {
             debug.warn("{x} ", limb);
         }
         debug.warn("\n");
     }
 
-    pub fn negate(r: *BigInt) void {
+    pub fn negate(r: *Int) void {
         r.positive = !r.positive;
     }
 
-    pub fn abs(r: *BigInt) void {
+    pub fn abs(r: *Int) void {
         r.positive = true;
     }
 
-    pub fn isOdd(r: *const BigInt) bool {
+    pub fn isOdd(r: *const Int) bool {
         return r.limbs[0] & 1 != 0;
     }
 
-    pub fn isEven(r: *const BigInt) bool {
+    pub fn isEven(r: *const Int) bool {
         return !r.isOdd();
     }
 
-    fn bitcount(self: *const BigInt) usize {
+    fn bitcount(self: *const Int) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
         return usize(!self.positive) + u_bit_count;
     }
 
-    pub fn sizeInBase(self: *const BigInt, base: usize) usize {
+    pub fn sizeInBase(self: *const Int, base: usize) usize {
         return (self.bitcount() / math.log2(base)) + 1;
     }
 
-    pub fn set(self: *BigInt, value: var) Allocator.Error!void {
+    pub fn set(self: *Int, value: var) Allocator.Error!void {
         const T = @typeOf(value);
 
         switch (@typeInfo(T)) {
@@ -209,7 +209,7 @@ pub const BigInt = struct {
                 }
             },
             else => {
-                @compileError("cannot set BigInt using type " ++ @typeName(T));
+                @compileError("cannot set Int using type " ++ @typeName(T));
             },
         }
     }
@@ -219,7 +219,7 @@ pub const BigInt = struct {
         TargetTooSmall,
     };
 
-    pub fn to(self: *const BigInt, comptime T: type) ConvertError!T {
+    pub fn to(self: *const Int, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
                 const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
@@ -247,7 +247,7 @@ pub const BigInt = struct {
                 }
             },
             else => {
-                @compileError("cannot convert BigInt to type " ++ @typeName(T));
+                @compileError("cannot convert Int to type " ++ @typeName(T));
             },
         }
     }
@@ -274,7 +274,7 @@ pub const BigInt = struct {
         };
     }
 
-    pub fn setString(self: *BigInt, base: u8, value: []const u8) !void {
+    pub fn setString(self: *Int, base: u8, value: []const u8) !void {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -295,7 +295,7 @@ pub const BigInt = struct {
         self.positive = positive;
     }
 
-    pub fn toString(self: *const BigInt, allocator: *Allocator, base: u8) ![]const u8 {
+    pub fn toString(self: *const Int, allocator: *Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -341,11 +341,11 @@ pub const BigInt = struct {
 
             var q = try self.clone();
             q.positive = true;
-            var r = try BigInt.init(allocator);
-            var b = try BigInt.initSet(allocator, limb_base);
+            var r = try Int.init(allocator);
+            var b = try Int.initSet(allocator, limb_base);
 
             while (q.len >= 2) {
-                try BigInt.divTrunc(&q, &r, &q, &b);
+                try Int.divTrunc(&q, &r, &q, &b);
 
                 var r_word = r.limbs[0];
                 var i: usize = 0;
@@ -378,7 +378,7 @@ pub const BigInt = struct {
     }
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
-    pub fn cmpAbs(a: *const BigInt, bv: var) i8 {
+    pub fn cmpAbs(a: *const Int, bv: var) i8 {
         // TODO: Thread-local buffer.
         var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
@@ -408,7 +408,7 @@ pub const BigInt = struct {
     }
 
     // returns -1, 0, 1 if a < b, a == b or a > b respectively.
-    pub fn cmp(a: *const BigInt, bv: var) i8 {
+    pub fn cmp(a: *const Int, bv: var) i8 {
         var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var b = wrapInt(&stack.allocator, bv);
@@ -422,17 +422,17 @@ pub const BigInt = struct {
     }
 
     // if a == 0
-    pub fn eqZero(a: *const BigInt) bool {
+    pub fn eqZero(a: *const Int) bool {
         return a.len == 1 and a.limbs[0] == 0;
     }
 
     // if |a| == |b|
-    pub fn eqAbs(a: *const BigInt, b: var) bool {
+    pub fn eqAbs(a: *const Int, b: var) bool {
         return cmpAbs(a, b) == 0;
     }
 
     // if a == b
-    pub fn eq(a: *const BigInt, b: var) bool {
+    pub fn eq(a: *const Int, b: var) bool {
         return cmp(a, b) == 0;
     }
 
@@ -441,7 +441,7 @@ pub const BigInt = struct {
     // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
     // [1, 2, 3, 4, 5] -> [1, 2, 3, 4, 5]
     // [0]             -> [0]
-    fn norm1(r: *BigInt, length: usize) void {
+    fn norm1(r: *Int, length: usize) void {
         debug.assert(length > 0);
         debug.assert(length <= r.limbs.len);
 
@@ -457,7 +457,7 @@ pub const BigInt = struct {
     // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
     // [1, 2, 0, 0, 0] -> [1, 2]
     // [0, 0, 0, 0, 0] -> [0]
-    fn normN(r: *BigInt, length: usize) void {
+    fn normN(r: *Int, length: usize) void {
         debug.assert(length > 0);
         debug.assert(length <= r.limbs.len);
 
@@ -473,7 +473,7 @@ pub const BigInt = struct {
     }
 
     // r = a + b
-    pub fn add(r: *BigInt, av: var, bv: var) Allocator.Error!void {
+    pub fn add(r: *Int, av: var, bv: var) Allocator.Error!void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -490,7 +490,7 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
-                const bp = BigInt{
+                const bp = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -499,7 +499,7 @@ pub const BigInt = struct {
                 try r.sub(a, bp);
             } else {
                 // (-a) + (b) => b - a
-                const ap = BigInt{
+                const ap = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
@@ -547,7 +547,7 @@ pub const BigInt = struct {
     }
 
     // r = a - b
-    pub fn sub(r: *BigInt, av: var, bv: var) !void {
+    pub fn sub(r: *Int, av: var, bv: var) !void {
         var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -556,7 +556,7 @@ pub const BigInt = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
-                const bp = BigInt{
+                const bp = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -565,7 +565,7 @@ pub const BigInt = struct {
                 try r.add(a, bp);
             } else {
                 // (-a) - (b) => -(a + b)
-                const ap = BigInt{
+                const ap = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
@@ -632,7 +632,7 @@ pub const BigInt = struct {
     // rma = a * b
     //
     // For greatest efficiency, ensure rma does not alias a or b.
-    pub fn mul(rma: *BigInt, av: var, bv: var) !void {
+    pub fn mul(rma: *Int, av: var, bv: var) !void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -641,9 +641,9 @@ pub const BigInt = struct {
         var r = rma;
         var aliased = rma == a or rma == b;
 
-        var sr: BigInt = undefined;
+        var sr: Int = undefined;
         if (aliased) {
-            sr = try BigInt.initCapacity(rma.allocator, a.len + b.len);
+            sr = try Int.initCapacity(rma.allocator, a.len + b.len);
             r = &sr;
             aliased = true;
         }
@@ -714,7 +714,7 @@ pub const BigInt = struct {
         }
     }
 
-    pub fn divFloor(q: *BigInt, r: *BigInt, a: var, b: var) !void {
+    pub fn divFloor(q: *Int, r: *Int, a: var, b: var) !void {
         try div(q, r, a, b);
 
         // Trunc -> Floor.
@@ -725,13 +725,13 @@ pub const BigInt = struct {
         r.positive = b.positive;
     }
 
-    pub fn divTrunc(q: *BigInt, r: *BigInt, a: var, b: var) !void {
+    pub fn divTrunc(q: *Int, r: *Int, a: var, b: var) !void {
         try div(q, r, a, b);
         r.positive = a.positive;
     }
 
     // Truncates by default.
-    fn div(quo: *BigInt, rem: *BigInt, av: var, bv: var) !void {
+    fn div(quo: *Int, rem: *Int, av: var, bv: var) !void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -810,13 +810,13 @@ pub const BigInt = struct {
     // Handbook of Applied Cryptography, 14.20
     //
     // x = qy + r where 0 <= r < y
-    fn divN(allocator: *Allocator, q: *BigInt, r: *BigInt, x: *BigInt, y: *BigInt) !void {
+    fn divN(allocator: *Allocator, q: *Int, r: *Int, x: *Int, y: *Int) !void {
         debug.assert(y.len >= 2);
         debug.assert(x.len >= y.len);
         debug.assert(q.limbs.len >= x.len + y.len - 1);
         debug.assert(default_capacity >= 3); // see 3.2
 
-        var tmp = try BigInt.init(allocator);
+        var tmp = try Int.init(allocator);
         defer tmp.deinit();
 
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
@@ -892,7 +892,7 @@ pub const BigInt = struct {
     }
 
     // r = a << shift, in other words, r = a * 2^shift
-    pub fn shiftLeft(r: *BigInt, av: var, shift: usize) !void {
+    pub fn shiftLeft(r: *Int, av: var, shift: usize) !void {
         var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -927,7 +927,7 @@ pub const BigInt = struct {
     }
 
     // r = a >> shift
-    pub fn shiftRight(r: *BigInt, av: var, shift: usize) !void {
+    pub fn shiftRight(r: *Int, av: var, shift: usize) !void {
         var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -966,7 +966,7 @@ pub const BigInt = struct {
     }
 
     // r = a | b
-    pub fn bitOr(r: *BigInt, av: var, bv: var) !void {
+    pub fn bitOr(r: *Int, av: var, bv: var) !void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -998,7 +998,7 @@ pub const BigInt = struct {
     }
 
     // r = a & b
-    pub fn bitAnd(r: *BigInt, av: var, bv: var) !void {
+    pub fn bitAnd(r: *Int, av: var, bv: var) !void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -1027,7 +1027,7 @@ pub const BigInt = struct {
     }
 
     // r = a ^ b
-    pub fn bitXor(r: *BigInt, av: var, bv: var) !void {
+    pub fn bitXor(r: *Int, av: var, bv: var) !void {
         var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
         var a = wrapInt(&stack.allocator, av);
@@ -1067,9 +1067,9 @@ pub const BigInt = struct {
 const u256 = @IntType(false, 256);
 var al = debug.global_allocator;
 
-test "bigint comptime_int set" {
+test "big.int comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;
-    var a = try BigInt.initSet(al, s);
+    var a = try Int.initSet(al, s);
 
     const s_limb_count = 128 / Limb.bit_count;
 
@@ -1082,34 +1082,34 @@ test "bigint comptime_int set" {
     }
 }
 
-test "bigint comptime_int set negative" {
-    var a = try BigInt.initSet(al, -10);
+test "big.int comptime_int set negative" {
+    var a = try Int.initSet(al, -10);
 
     debug.assert(a.limbs[0] == 10);
     debug.assert(a.positive == false);
 }
 
-test "bigint int set unaligned small" {
-    var a = try BigInt.initSet(al, u7(45));
+test "big.int int set unaligned small" {
+    var a = try Int.initSet(al, u7(45));
 
     debug.assert(a.limbs[0] == 45);
     debug.assert(a.positive == true);
 }
 
-test "bigint comptime_int to" {
-    const a = try BigInt.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
+test "big.int comptime_int to" {
+    const a = try Int.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
 
     debug.assert((try a.to(u128)) == 0xefffffff00000001eeeeeeefaaaaaaab);
 }
 
-test "bigint sub-limb to" {
-    const a = try BigInt.initSet(al, 10);
+test "big.int sub-limb to" {
+    const a = try Int.initSet(al, 10);
 
     debug.assert((try a.to(u8)) == 10);
 }
 
-test "bigint to target too small error" {
-    const a = try BigInt.initSet(al, 0xffffffff);
+test "big.int to target too small error" {
+    const a = try Int.initSet(al, 0xffffffff);
 
     if (a.to(u8)) |_| {
         unreachable;
@@ -1118,8 +1118,8 @@ test "bigint to target too small error" {
     }
 }
 
-test "bigint norm1" {
-    var a = try BigInt.init(al);
+test "big.int norm1" {
+    var a = try Int.init(al);
     try a.ensureCapacity(8);
 
     a.limbs[0] = 1;
@@ -1145,8 +1145,8 @@ test "bigint norm1" {
     debug.assert(a.len == 1);
 }
 
-test "bigint normN" {
-    var a = try BigInt.init(al);
+test "big.int normN" {
+    var a = try Int.init(al);
     try a.ensureCapacity(8);
 
     a.limbs[0] = 1;
@@ -1174,8 +1174,8 @@ test "bigint normN" {
     debug.assert(a.len == 1);
 }
 
-test "bigint parity" {
-    var a = try BigInt.init(al);
+test "big.int parity" {
+    var a = try Int.init(al);
     try a.set(0);
     debug.assert(a.isEven());
     debug.assert(!a.isOdd());
@@ -1185,8 +1185,8 @@ test "bigint parity" {
     debug.assert(a.isOdd());
 }
 
-test "bigint bitcount + sizeInBase" {
-    var a = try BigInt.init(al);
+test "big.int bitcount + sizeInBase" {
+    var a = try Int.init(al);
 
     try a.set(0b100);
     debug.assert(a.bitcount() == 3);
@@ -1207,31 +1207,31 @@ test "bigint bitcount + sizeInBase" {
     debug.assert(a.sizeInBase(2) >= 5033);
 }
 
-test "bigint string set" {
-    var a = try BigInt.init(al);
+test "big.int string set" {
+    var a = try Int.init(al);
     try a.setString(10, "120317241209124781241290847124");
 
     debug.assert((try a.to(u128)) == 120317241209124781241290847124);
 }
 
-test "bigint string negative" {
-    var a = try BigInt.init(al);
+test "big.int string negative" {
+    var a = try Int.init(al);
     try a.setString(10, "-1023");
     debug.assert((try a.to(i32)) == -1023);
 }
 
-test "bigint string set bad char error" {
-    var a = try BigInt.init(al);
+test "big.int string set bad char error" {
+    var a = try Int.init(al);
     a.setString(10, "x") catch |err| debug.assert(err == error.InvalidCharForDigit);
 }
 
-test "bigint string set bad base error" {
-    var a = try BigInt.init(al);
+test "big.int string set bad base error" {
+    var a = try Int.init(al);
     a.setString(45, "10") catch |err| debug.assert(err == error.InvalidBase);
 }
 
-test "bigint string to" {
-    const a = try BigInt.initSet(al, 120317241209124781241290847124);
+test "big.int string to" {
+    const a = try Int.initSet(al, 120317241209124781241290847124);
 
     const as = try a.toString(al, 10);
     const es = "120317241209124781241290847124";
@@ -1239,8 +1239,8 @@ test "bigint string to" {
     debug.assert(mem.eql(u8, as, es));
 }
 
-test "bigint string to base base error" {
-    const a = try BigInt.initSet(al, 0xffffffff);
+test "big.int string to base base error" {
+    const a = try Int.initSet(al, 0xffffffff);
 
     if (a.toString(al, 45)) |_| {
         unreachable;
@@ -1249,8 +1249,8 @@ test "bigint string to base base error" {
     }
 }
 
-test "bigint string to base 2" {
-    const a = try BigInt.initSet(al, -0b1011);
+test "big.int string to base 2" {
+    const a = try Int.initSet(al, -0b1011);
 
     const as = try a.toString(al, 2);
     const es = "-1011";
@@ -1258,8 +1258,8 @@ test "bigint string to base 2" {
     debug.assert(mem.eql(u8, as, es));
 }
 
-test "bigint string to base 16" {
-    const a = try BigInt.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
+test "big.int string to base 16" {
+    const a = try Int.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
 
     const as = try a.toString(al, 16);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
@@ -1267,8 +1267,8 @@ test "bigint string to base 16" {
     debug.assert(mem.eql(u8, as, es));
 }
 
-test "bigint neg string to" {
-    const a = try BigInt.initSet(al, -123907434);
+test "big.int neg string to" {
+    const a = try Int.initSet(al, -123907434);
 
     const as = try a.toString(al, 10);
     const es = "-123907434";
@@ -1276,8 +1276,8 @@ test "bigint neg string to" {
     debug.assert(mem.eql(u8, as, es));
 }
 
-test "bigint zero string to" {
-    const a = try BigInt.initSet(al, 0);
+test "big.int zero string to" {
+    const a = try Int.initSet(al, 0);
 
     const as = try a.toString(al, 10);
     const es = "0";
@@ -1285,8 +1285,8 @@ test "bigint zero string to" {
     debug.assert(mem.eql(u8, as, es));
 }
 
-test "bigint clone" {
-    var a = try BigInt.initSet(al, 1234);
+test "big.int clone" {
+    var a = try Int.initSet(al, 1234);
     const b = try a.clone();
 
     debug.assert((try a.to(u32)) == 1234);
@@ -1297,9 +1297,9 @@ test "bigint clone" {
     debug.assert((try b.to(u32)) == 1234);
 }
 
-test "bigint swap" {
-    var a = try BigInt.initSet(al, 1234);
-    var b = try BigInt.initSet(al, 5678);
+test "big.int swap" {
+    var a = try Int.initSet(al, 1234);
+    var b = try Int.initSet(al, 5678);
 
     debug.assert((try a.to(u32)) == 1234);
     debug.assert((try b.to(u32)) == 5678);
@@ -1310,54 +1310,54 @@ test "bigint swap" {
     debug.assert((try b.to(u32)) == 1234);
 }
 
-test "bigint to negative" {
-    var a = try BigInt.initSet(al, -10);
+test "big.int to negative" {
+    var a = try Int.initSet(al, -10);
 
     debug.assert((try a.to(i32)) == -10);
 }
 
-test "bigint compare" {
-    var a = try BigInt.initSet(al, -11);
-    var b = try BigInt.initSet(al, 10);
+test "big.int compare" {
+    var a = try Int.initSet(al, -11);
+    var b = try Int.initSet(al, 10);
 
     debug.assert(a.cmpAbs(&b) == 1);
     debug.assert(a.cmp(&b) == -1);
 }
 
-test "bigint compare similar" {
-    var a = try BigInt.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeee);
-    var b = try BigInt.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeef);
+test "big.int compare similar" {
+    var a = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeee);
+    var b = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeef);
 
     debug.assert(a.cmpAbs(&b) == -1);
     debug.assert(b.cmpAbs(&a) == 1);
 }
 
-test "bigint compare different limb size" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, 1);
+test "big.int compare different limb size" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, 1);
 
     debug.assert(a.cmpAbs(&b) == 1);
     debug.assert(b.cmpAbs(&a) == -1);
 }
 
-test "bigint compare multi-limb" {
-    var a = try BigInt.initSet(al, -0x7777777799999999ffffeeeeffffeeeeffffeeeef);
-    var b = try BigInt.initSet(al, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
+test "big.int compare multi-limb" {
+    var a = try Int.initSet(al, -0x7777777799999999ffffeeeeffffeeeeffffeeeef);
+    var b = try Int.initSet(al, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
 
     debug.assert(a.cmpAbs(&b) == 1);
     debug.assert(a.cmp(&b) == -1);
 }
 
-test "bigint equality" {
-    var a = try BigInt.initSet(al, 0xffffffff1);
-    var b = try BigInt.initSet(al, -0xffffffff1);
+test "big.int equality" {
+    var a = try Int.initSet(al, 0xffffffff1);
+    var b = try Int.initSet(al, -0xffffffff1);
 
     debug.assert(a.eqAbs(&b));
     debug.assert(!a.eq(&b));
 }
 
-test "bigint abs" {
-    var a = try BigInt.initSet(al, -5);
+test "big.int abs" {
+    var a = try Int.initSet(al, -5);
 
     a.abs();
     debug.assert((try a.to(u32)) == 5);
@@ -1366,8 +1366,8 @@ test "bigint abs" {
     debug.assert((try a.to(u32)) == 5);
 }
 
-test "bigint negate" {
-    var a = try BigInt.initSet(al, 5);
+test "big.int negate" {
+    var a = try Int.initSet(al, 5);
 
     a.negate();
     debug.assert((try a.to(i32)) == -5);
@@ -1376,21 +1376,21 @@ test "bigint negate" {
     debug.assert((try a.to(i32)) == 5);
 }
 
-test "bigint add single-single" {
-    var a = try BigInt.initSet(al, 50);
-    var b = try BigInt.initSet(al, 5);
+test "big.int add single-single" {
+    var a = try Int.initSet(al, 50);
+    var b = try Int.initSet(al, 5);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.add(&a, &b);
 
     debug.assert((try c.to(u32)) == 55);
 }
 
-test "bigint add multi-single" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, 1);
+test "big.int add multi-single" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, 1);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
 
     try c.add(&a, &b);
     debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
@@ -1399,40 +1399,40 @@ test "bigint add multi-single" {
     debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
 }
 
-test "bigint add multi-multi" {
+test "big.int add multi-multi" {
     const op1 = 0xefefefef7f7f7f7f;
     const op2 = 0xfefefefe9f9f9f9f;
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.add(&a, &b);
 
     debug.assert((try c.to(u128)) == op1 + op2);
 }
 
-test "bigint add zero-zero" {
-    var a = try BigInt.initSet(al, 0);
-    var b = try BigInt.initSet(al, 0);
+test "big.int add zero-zero" {
+    var a = try Int.initSet(al, 0);
+    var b = try Int.initSet(al, 0);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.add(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
 }
 
-test "bigint add alias multi-limb nonzero-zero" {
+test "big.int add alias multi-limb nonzero-zero" {
     const op1 = 0xffffffff777777771;
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, 0);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, 0);
 
     try a.add(&a, &b);
 
     debug.assert((try a.to(u128)) == op1);
 }
 
-test "bigint add sign" {
-    var a = try BigInt.init(al);
+test "big.int add sign" {
+    var a = try Int.init(al);
 
     try a.add(1, 2);
     debug.assert((try a.to(i32)) == 3);
@@ -1447,51 +1447,51 @@ test "bigint add sign" {
     debug.assert((try a.to(i32)) == -3);
 }
 
-test "bigint sub single-single" {
-    var a = try BigInt.initSet(al, 50);
-    var b = try BigInt.initSet(al, 5);
+test "big.int sub single-single" {
+    var a = try Int.initSet(al, 50);
+    var b = try Int.initSet(al, 5);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.sub(&a, &b);
 
     debug.assert((try c.to(u32)) == 45);
 }
 
-test "bigint sub multi-single" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, 1);
+test "big.int sub multi-single" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, 1);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.sub(&a, &b);
 
     debug.assert((try c.to(Limb)) == @maxValue(Limb));
 }
 
-test "bigint sub multi-multi" {
+test "big.int sub multi-multi" {
     const op1 = 0xefefefefefefefefefefefef;
     const op2 = 0xabababababababababababab;
 
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.sub(&a, &b);
 
     debug.assert((try c.to(u128)) == op1 - op2);
 }
 
-test "bigint sub equal" {
-    var a = try BigInt.initSet(al, 0x11efefefefefefefefefefefef);
-    var b = try BigInt.initSet(al, 0x11efefefefefefefefefefefef);
+test "big.int sub equal" {
+    var a = try Int.initSet(al, 0x11efefefefefefefefefefefef);
+    var b = try Int.initSet(al, 0x11efefefefefefefefefefefef);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.sub(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
 }
 
-test "bigint sub sign" {
-    var a = try BigInt.init(al);
+test "big.int sub sign" {
+    var a = try Int.init(al);
 
     try a.sub(1, 2);
     debug.assert((try a.to(i32)) == -1);
@@ -1509,211 +1509,211 @@ test "bigint sub sign" {
     debug.assert((try a.to(i32)) == -1);
 }
 
-test "bigint mul single-single" {
-    var a = try BigInt.initSet(al, 50);
-    var b = try BigInt.initSet(al, 5);
+test "big.int mul single-single" {
+    var a = try Int.initSet(al, 50);
+    var b = try Int.initSet(al, 5);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.mul(&a, &b);
 
     debug.assert((try c.to(u64)) == 250);
 }
 
-test "bigint mul multi-single" {
-    var a = try BigInt.initSet(al, @maxValue(Limb));
-    var b = try BigInt.initSet(al, 2);
+test "big.int mul multi-single" {
+    var a = try Int.initSet(al, @maxValue(Limb));
+    var b = try Int.initSet(al, 2);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.mul(&a, &b);
 
     debug.assert((try c.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
-test "bigint mul multi-multi" {
+test "big.int mul multi-multi" {
     const op1 = 0x998888efefefefefefefef;
     const op2 = 0x333000abababababababab;
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.mul(&a, &b);
 
     debug.assert((try c.to(u256)) == op1 * op2);
 }
 
-test "bigint mul alias r with a" {
-    var a = try BigInt.initSet(al, @maxValue(Limb));
-    var b = try BigInt.initSet(al, 2);
+test "big.int mul alias r with a" {
+    var a = try Int.initSet(al, @maxValue(Limb));
+    var b = try Int.initSet(al, 2);
 
     try a.mul(&a, &b);
 
     debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
-test "bigint mul alias r with b" {
-    var a = try BigInt.initSet(al, @maxValue(Limb));
-    var b = try BigInt.initSet(al, 2);
+test "big.int mul alias r with b" {
+    var a = try Int.initSet(al, @maxValue(Limb));
+    var b = try Int.initSet(al, 2);
 
     try a.mul(&b, &a);
 
     debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
 
-test "bigint mul alias r with a and b" {
-    var a = try BigInt.initSet(al, @maxValue(Limb));
+test "big.int mul alias r with a and b" {
+    var a = try Int.initSet(al, @maxValue(Limb));
 
     try a.mul(&a, &a);
 
     debug.assert((try a.to(DoubleLimb)) == @maxValue(Limb) * @maxValue(Limb));
 }
 
-test "bigint mul a*0" {
-    var a = try BigInt.initSet(al, 0xefefefefefefefef);
-    var b = try BigInt.initSet(al, 0);
+test "big.int mul a*0" {
+    var a = try Int.initSet(al, 0xefefefefefefefef);
+    var b = try Int.initSet(al, 0);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.mul(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
 }
 
-test "bigint mul 0*0" {
-    var a = try BigInt.initSet(al, 0);
-    var b = try BigInt.initSet(al, 0);
+test "big.int mul 0*0" {
+    var a = try Int.initSet(al, 0);
+    var b = try Int.initSet(al, 0);
 
-    var c = try BigInt.init(al);
+    var c = try Int.init(al);
     try c.mul(&a, &b);
 
     debug.assert((try c.to(u32)) == 0);
 }
 
-test "bigint div single-single no rem" {
-    var a = try BigInt.initSet(al, 50);
-    var b = try BigInt.initSet(al, 5);
+test "big.int div single-single no rem" {
+    var a = try Int.initSet(al, 50);
+    var b = try Int.initSet(al, 5);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u32)) == 10);
     debug.assert((try r.to(u32)) == 0);
 }
 
-test "bigint div single-single with rem" {
-    var a = try BigInt.initSet(al, 49);
-    var b = try BigInt.initSet(al, 5);
+test "big.int div single-single with rem" {
+    var a = try Int.initSet(al, 49);
+    var b = try Int.initSet(al, 5);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u32)) == 9);
     debug.assert((try r.to(u32)) == 4);
 }
 
-test "bigint div multi-single no rem" {
+test "big.int div multi-single no rem" {
     const op1 = 0xffffeeeeddddcccc;
     const op2 = 34;
 
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 0);
 }
 
-test "bigint div multi-single with rem" {
+test "big.int div multi-single with rem" {
     const op1 = 0xffffeeeeddddcccf;
     const op2 = 34;
 
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 3);
 }
 
-test "bigint div multi>2-single" {
+test "big.int div multi>2-single" {
     const op1 = 0xfefefefefefefefefefefefefefefefe;
     const op2 = 0xefab8;
 
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == op1 / op2);
     debug.assert((try r.to(u32)) == 0x3e4e);
 }
 
-test "bigint div single-single q < r" {
-    var a = try BigInt.initSet(al, 0x0078f432);
-    var b = try BigInt.initSet(al, 0x01000000);
+test "big.int div single-single q < r" {
+    var a = try Int.initSet(al, 0x0078f432);
+    var b = try Int.initSet(al, 0x01000000);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == 0);
     debug.assert((try r.to(u64)) == 0x0078f432);
 }
 
-test "bigint div single-single q == r" {
-    var a = try BigInt.initSet(al, 10);
-    var b = try BigInt.initSet(al, 10);
+test "big.int div single-single q == r" {
+    var a = try Int.initSet(al, 10);
+    var b = try Int.initSet(al, 10);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u64)) == 1);
     debug.assert((try r.to(u64)) == 0);
 }
 
-test "bigint div q=0 alias" {
-    var a = try BigInt.initSet(al, 3);
-    var b = try BigInt.initSet(al, 10);
+test "big.int div q=0 alias" {
+    var a = try Int.initSet(al, 3);
+    var b = try Int.initSet(al, 10);
 
-    try BigInt.divTrunc(&a, &b, &a, &b);
+    try Int.divTrunc(&a, &b, &a, &b);
 
     debug.assert((try a.to(u64)) == 0);
     debug.assert((try b.to(u64)) == 3);
 }
 
-test "bigint div multi-multi q < r" {
+test "big.int div multi-multi q < r" {
     const op1 = 0x1ffffffff0078f432;
     const op2 = 0x1ffffffff01000000;
-    var a = try BigInt.initSet(al, op1);
-    var b = try BigInt.initSet(al, op2);
+    var a = try Int.initSet(al, op1);
+    var b = try Int.initSet(al, op2);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0);
     debug.assert((try r.to(u128)) == op1);
 }
 
-test "bigint div trunc single-single +/+" {
+test "big.int div trunc single-single +/+" {
     const u: i32 = 5;
     const v: i32 = 3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     // n = q * d + r
     // 5 = 1 * 3 + 2
@@ -1724,16 +1724,16 @@ test "bigint div trunc single-single +/+" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div trunc single-single -/+" {
+test "big.int div trunc single-single -/+" {
     const u: i32 = -5;
     const v: i32 = 3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1744,16 +1744,16 @@ test "bigint div trunc single-single -/+" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div trunc single-single +/-" {
+test "big.int div trunc single-single +/-" {
     const u: i32 = 5;
     const v: i32 = -3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     // n =  q *  d + r
     // 5 = -1 * -3 + 2
@@ -1764,16 +1764,16 @@ test "bigint div trunc single-single +/-" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div trunc single-single -/-" {
+test "big.int div trunc single-single -/-" {
     const u: i32 = -5;
     const v: i32 = -3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1784,16 +1784,16 @@ test "bigint div trunc single-single -/-" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div floor single-single +/+" {
+test "big.int div floor single-single +/+" {
     const u: i32 = 5;
     const v: i32 = 3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divFloor(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     //  5 =  1 *  3 + 2
@@ -1804,16 +1804,16 @@ test "bigint div floor single-single +/+" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div floor single-single -/+" {
+test "big.int div floor single-single -/+" {
     const u: i32 = -5;
     const v: i32 = 3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divFloor(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     // -5 = -2 *  3 + 1
@@ -1824,16 +1824,16 @@ test "bigint div floor single-single -/+" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div floor single-single +/-" {
+test "big.int div floor single-single +/-" {
     const u: i32 = 5;
     const v: i32 = -3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divFloor(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     //  5 = -2 * -3 - 1
@@ -1844,16 +1844,16 @@ test "bigint div floor single-single +/-" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div floor single-single -/-" {
+test "big.int div floor single-single -/-" {
     const u: i32 = -5;
     const v: i32 = -3;
 
-    var a = try BigInt.initSet(al, u);
-    var b = try BigInt.initSet(al, v);
+    var a = try Int.initSet(al, u);
+    var b = try Int.initSet(al, v);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divFloor(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     // -5 =  2 * -3 + 1
@@ -1864,84 +1864,84 @@ test "bigint div floor single-single -/-" {
     debug.assert((try r.to(i32)) == er);
 }
 
-test "bigint div multi-multi with rem" {
-    var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
-    var b = try BigInt.initSet(al, 0x99990000111122223333);
+test "big.int div multi-multi with rem" {
+    var a = try Int.initSet(al, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
+    var b = try Int.initSet(al, 0x99990000111122223333);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
 }
 
-test "bigint div multi-multi no rem" {
-    var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeedb4fec200ee3a4286361);
-    var b = try BigInt.initSet(al, 0x99990000111122223333);
+test "big.int div multi-multi no rem" {
+    var a = try Int.initSet(al, 0x8888999911110000ffffeeeedb4fec200ee3a4286361);
+    var b = try Int.initSet(al, 0x99990000111122223333);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0);
 }
 
-test "bigint div multi-multi (2 branch)" {
-    var a = try BigInt.initSet(al, 0x866666665555555588888887777777761111111111111111);
-    var b = try BigInt.initSet(al, 0x86666666555555554444444433333333);
+test "big.int div multi-multi (2 branch)" {
+    var a = try Int.initSet(al, 0x866666665555555588888887777777761111111111111111);
+    var b = try Int.initSet(al, 0x86666666555555554444444433333333);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0x10000000000000000);
     debug.assert((try r.to(u128)) == 0x44444443444444431111111111111111);
 }
 
-test "bigint div multi-multi (3.1/3.3 branch)" {
-    var a = try BigInt.initSet(al, 0x11111111111111111111111111111111111111111111111111111111111111);
-    var b = try BigInt.initSet(al, 0x1111111111111111111111111111111111111111171);
+test "big.int div multi-multi (3.1/3.3 branch)" {
+    var a = try Int.initSet(al, 0x11111111111111111111111111111111111111111111111111111111111111);
+    var b = try Int.initSet(al, 0x1111111111111111111111111111111111111111171);
 
-    var q = try BigInt.init(al);
-    var r = try BigInt.init(al);
-    try BigInt.divTrunc(&q, &r, &a, &b);
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
 
     debug.assert((try q.to(u128)) == 0xfffffffffffffffffff);
     debug.assert((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
 }
 
-test "bigint shift-right single" {
-    var a = try BigInt.initSet(al, 0xffff0000);
+test "big.int shift-right single" {
+    var a = try Int.initSet(al, 0xffff0000);
     try a.shiftRight(a, 16);
 
     debug.assert((try a.to(u32)) == 0xffff);
 }
 
-test "bigint shift-right multi" {
-    var a = try BigInt.initSet(al, 0xffff0000eeee1111dddd2222cccc3333);
+test "big.int shift-right multi" {
+    var a = try Int.initSet(al, 0xffff0000eeee1111dddd2222cccc3333);
     try a.shiftRight(a, 67);
 
     debug.assert((try a.to(u64)) == 0x1fffe0001dddc222);
 }
 
-test "bigint shift-left single" {
-    var a = try BigInt.initSet(al, 0xffff);
+test "big.int shift-left single" {
+    var a = try Int.initSet(al, 0xffff);
     try a.shiftLeft(a, 16);
 
     debug.assert((try a.to(u64)) == 0xffff0000);
 }
 
-test "bigint shift-left multi" {
-    var a = try BigInt.initSet(al, 0x1fffe0001dddc222);
+test "big.int shift-left multi" {
+    var a = try Int.initSet(al, 0x1fffe0001dddc222);
     try a.shiftLeft(a, 67);
 
     debug.assert((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
 }
 
-test "bigint shift-right negative" {
-    var a = try BigInt.init(al);
+test "big.int shift-right negative" {
+    var a = try Int.init(al);
 
     try a.shiftRight(-20, 2);
     debug.assert((try a.to(i32)) == -20 >> 2);
@@ -1950,70 +1950,70 @@ test "bigint shift-right negative" {
     debug.assert((try a.to(i32)) == -5 >> 10);
 }
 
-test "bigint shift-left negative" {
-    var a = try BigInt.init(al);
+test "big.int shift-left negative" {
+    var a = try Int.init(al);
 
     try a.shiftRight(-10, 1232);
     debug.assert((try a.to(i32)) == -10 >> 1232);
 }
 
-test "bigint bitwise and simple" {
-    var a = try BigInt.initSet(al, 0xffffffff11111111);
-    var b = try BigInt.initSet(al, 0xeeeeeeee22222222);
+test "big.int bitwise and simple" {
+    var a = try Int.initSet(al, 0xffffffff11111111);
+    var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
     try a.bitAnd(&a, &b);
 
     debug.assert((try a.to(u64)) == 0xeeeeeeee00000000);
 }
 
-test "bigint bitwise and multi-limb" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, @maxValue(Limb));
+test "big.int bitwise and multi-limb" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, @maxValue(Limb));
 
     try a.bitAnd(&a, &b);
 
     debug.assert((try a.to(u128)) == 0);
 }
 
-test "bigint bitwise xor simple" {
-    var a = try BigInt.initSet(al, 0xffffffff11111111);
-    var b = try BigInt.initSet(al, 0xeeeeeeee22222222);
+test "big.int bitwise xor simple" {
+    var a = try Int.initSet(al, 0xffffffff11111111);
+    var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
     try a.bitXor(&a, &b);
 
     debug.assert((try a.to(u64)) == 0x1111111133333333);
 }
 
-test "bigint bitwise xor multi-limb" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, @maxValue(Limb));
+test "big.int bitwise xor multi-limb" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, @maxValue(Limb));
 
     try a.bitXor(&a, &b);
 
     debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
 }
 
-test "bigint bitwise or simple" {
-    var a = try BigInt.initSet(al, 0xffffffff11111111);
-    var b = try BigInt.initSet(al, 0xeeeeeeee22222222);
+test "big.int bitwise or simple" {
+    var a = try Int.initSet(al, 0xffffffff11111111);
+    var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
     try a.bitOr(&a, &b);
 
     debug.assert((try a.to(u64)) == 0xffffffff33333333);
 }
 
-test "bigint bitwise or multi-limb" {
-    var a = try BigInt.initSet(al, @maxValue(Limb) + 1);
-    var b = try BigInt.initSet(al, @maxValue(Limb));
+test "big.int bitwise or multi-limb" {
+    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var b = try Int.initSet(al, @maxValue(Limb));
 
     try a.bitOr(&a, &b);
 
-    // TODO: bigint.cpp or is wrong on multi-limb.
+    // TODO: big.int.cpp or is wrong on multi-limb.
     debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) + @maxValue(Limb));
 }
 
-test "bigint var args" {
-    var a = try BigInt.initSet(al, 5);
+test "big.int var args" {
+    var a = try Int.initSet(al, 5);
 
     try a.add(&a, 6);
     debug.assert((try a.to(u64)) == 11);
