@@ -18,13 +18,12 @@ comptime {
     debug.assert(Limb.is_signed == false);
 }
 
-const cow_buffer_size = 512;
+const wrapped_buffer_size = 512;
 
-// Copy-on-write integer.
-//
-// This is used internally to wrap primitive or comptime integers into a stack-based BigInt.
-// This can only realistically fail at runtime if using a very large dynamic integer. Unlikely.
-fn cowInt(allocator: *Allocator, bn: var) *const BigInt {
+// Converts primitive integer values onto a stack-based big integer, or passes through existing
+// BigInt types with no modifications. This can fail at runtime if using a very large dynamic
+// integer but it is very unlikely and is considered a user error.
+fn wrapInt(allocator: *Allocator, bn: var) *const BigInt {
     const T = @typeOf(bn);
     switch (@typeInfo(T)) {
         TypeId.Pointer => |info| {
@@ -381,9 +380,9 @@ pub const BigInt = struct {
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: *const BigInt, bv: var) i8 {
         // TODO: Thread-local buffer.
-        var buffer: [cow_buffer_size]u8 = undefined;
+        var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var b = cowInt(&stack.allocator, bv);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.len < b.len) {
             return -1;
@@ -410,9 +409,9 @@ pub const BigInt = struct {
 
     // returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: *const BigInt, bv: var) i8 {
-        var buffer: [cow_buffer_size]u8 = undefined;
+        var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var b = cowInt(&stack.allocator, bv);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.positive != b.positive) {
             return if (a.positive) i8(1) else -1;
@@ -475,10 +474,10 @@ pub const BigInt = struct {
 
     // r = a + b
     pub fn add(r: *BigInt, av: var, bv: var) Allocator.Error!void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.eqZero()) {
             try r.copy(b);
@@ -549,10 +548,10 @@ pub const BigInt = struct {
 
     // r = a - b
     pub fn sub(r: *BigInt, av: var, bv: var) !void {
-        var buffer: [cow_buffer_size]u8 = undefined;
+        var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.positive != b.positive) {
             if (a.positive) {
@@ -634,10 +633,10 @@ pub const BigInt = struct {
     //
     // For greatest efficiency, ensure rma does not alias a or b.
     pub fn mul(rma: *BigInt, av: var, bv: var) !void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         var r = rma;
         var aliased = rma == a or rma == b;
@@ -733,10 +732,10 @@ pub const BigInt = struct {
 
     // Truncates by default.
     fn div(quo: *BigInt, rem: *BigInt, av: var, bv: var) !void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (b.eqZero()) {
             @panic("division by zero");
@@ -894,9 +893,9 @@ pub const BigInt = struct {
 
     // r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: *BigInt, av: var, shift: usize) !void {
-        var buffer: [cow_buffer_size]u8 = undefined;
+        var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
+        var a = wrapInt(&stack.allocator, av);
 
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
@@ -929,9 +928,9 @@ pub const BigInt = struct {
 
     // r = a >> shift
     pub fn shiftRight(r: *BigInt, av: var, shift: usize) !void {
-        var buffer: [cow_buffer_size]u8 = undefined;
+        var buffer: [wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
+        var a = wrapInt(&stack.allocator, av);
 
         if (a.len <= shift / Limb.bit_count) {
             r.len = 1;
@@ -968,10 +967,10 @@ pub const BigInt = struct {
 
     // r = a | b
     pub fn bitOr(r: *BigInt, av: var, bv: var) !void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
@@ -1000,10 +999,10 @@ pub const BigInt = struct {
 
     // r = a & b
     pub fn bitAnd(r: *BigInt, av: var, bv: var) !void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.len > b.len) {
             try r.ensureCapacity(b.len);
@@ -1029,10 +1028,10 @@ pub const BigInt = struct {
 
     // r = a ^ b
     pub fn bitXor(r: *BigInt, av: var, bv: var) !void {
-        var buffer: [2 * cow_buffer_size]u8 = undefined;
+        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
         var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = cowInt(&stack.allocator, av);
-        var b = cowInt(&stack.allocator, bv);
+        var a = wrapInt(&stack.allocator, av);
+        var b = wrapInt(&stack.allocator, bv);
 
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
