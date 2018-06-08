@@ -434,10 +434,10 @@ pub const BigInt = struct {
     // [0]             -> [0]
     fn norm1(r: *BigInt, length: usize) void {
         debug.assert(length > 0);
+        debug.assert(length <= r.limbs.len);
 
         if (r.limbs[length - 1] == 0) {
-            debug.assert(length == 1 or r.limbs[length - 2] != 0);
-            r.len = length - 1;
+            r.len = if (length > 1) length - 1 else 1;
         } else {
             r.len = length;
         }
@@ -1090,6 +1090,62 @@ test "bigint sub-limb to" {
     const a = try BigInt.initSet(al, 10);
 
     debug.assert((try a.to(u8)) == 10);
+}
+
+test "bigint norm1" {
+    var a = try BigInt.init(al);
+    try a.ensureCapacity(8);
+
+    a.limbs[0] = 1;
+    a.limbs[1] = 2;
+    a.limbs[2] = 3;
+    a.limbs[3] = 0;
+    a.norm1(4);
+    debug.assert(a.len == 3);
+
+    a.limbs[0] = 1;
+    a.limbs[1] = 2;
+    a.limbs[2] = 3;
+    a.norm1(3);
+    debug.assert(a.len == 3);
+
+    a.limbs[0] = 0;
+    a.limbs[1] = 0;
+    a.norm1(2);
+    debug.assert(a.len == 1);
+
+    a.limbs[0] = 0;
+    a.norm1(1);
+    debug.assert(a.len == 1);
+}
+
+test "bigint normN" {
+    var a = try BigInt.init(al);
+    try a.ensureCapacity(8);
+
+    a.limbs[0] = 1;
+    a.limbs[1] = 2;
+    a.limbs[2] = 0;
+    a.limbs[3] = 0;
+    a.normN(4);
+    debug.assert(a.len == 2);
+
+    a.limbs[0] = 1;
+    a.limbs[1] = 2;
+    a.limbs[2] = 3;
+    a.normN(3);
+    debug.assert(a.len == 3);
+
+    a.limbs[0] = 0;
+    a.limbs[1] = 0;
+    a.limbs[2] = 0;
+    a.limbs[3] = 0;
+    a.normN(4);
+    debug.assert(a.len == 1);
+
+    a.limbs[0] = 0;
+    a.normN(1);
+    debug.assert(a.len == 1);
 }
 
 test "bigint parity" {
@@ -1784,7 +1840,7 @@ test "bigint div multi-multi with rem" {
     debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
 }
 
-test "bigint div multi-mutli no rem" {
+test "bigint div multi-multi no rem" {
     var a = try BigInt.initSet(al, 0x8888999911110000ffffeeeedb4fec200ee3a4286361);
     var b = try BigInt.initSet(al, 0x99990000111122223333);
 
@@ -1794,6 +1850,30 @@ test "bigint div multi-mutli no rem" {
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0);
+}
+
+test "bigint div multi-multi (2 branch)" {
+    var a = try BigInt.initSet(al, 0x866666665555555588888887777777761111111111111111);
+    var b = try BigInt.initSet(al, 0x86666666555555554444444433333333);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 0x10000000000000000);
+    debug.assert((try r.to(u128)) == 0x44444443444444431111111111111111);
+}
+
+test "bigint div multi-multi (3.1/3.3 branch)" {
+    var a = try BigInt.initSet(al, 0x11111111111111111111111111111111111111111111111111111111111111);
+    var b = try BigInt.initSet(al, 0x1111111111111111111111111111111111111111171);
+
+    var q = try BigInt.init(al);
+    var r = try BigInt.init(al);
+    try BigInt.divTrunc(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 0xfffffffffffffffffff);
+    debug.assert((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
 }
 
 test "bigint shift-right single" {
