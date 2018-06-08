@@ -178,28 +178,27 @@ pub const BigInt = struct {
                 }
             },
             TypeId.ComptimeInt => {
-                var ilimbs = ArrayList(Limb).init(self.allocator);
-                defer ilimbs.deinit();
-
-                self.positive = value >= 0;
-                self.len = 0;
-
                 comptime var w_value = if (value < 0) -value else value;
 
+                const req_limbs = @divFloor(math.log2(w_value), Limb.bit_count) + 1;
+                try self.ensureCapacity(req_limbs);
+
+                self.positive = value >= 0;
+                self.len = req_limbs;
+
                 if (w_value <= @maxValue(Limb)) {
-                    try ilimbs.append(w_value);
+                    self.limbs[0] = w_value;
                 } else {
                     const mask = (1 << Limb.bit_count) - 1;
-                    inline while (w_value != 0) {
-                        try ilimbs.append(w_value & mask);
+
+                    comptime var i = 0;
+                    inline while (w_value != 0) : (i += 1) {
+                        self.limbs[i] = w_value & mask;
+
                         w_value >>= Limb.bit_count / 2;
                         w_value >>= Limb.bit_count / 2;
                     }
                 }
-
-                try self.ensureCapacity(ilimbs.len);
-                mem.copy(Limb, self.limbs, ilimbs.toSliceConst());
-                self.len = ilimbs.len;
             },
             else => {
                 @compileError("cannot set BigInt using type " ++ @typeName(T));
@@ -1078,6 +1077,13 @@ test "bigint comptime_int set negative" {
 
     debug.assert(a.limbs[0] == 10);
     debug.assert(a.positive == false);
+}
+
+test "bigint int set unaligned small" {
+    var a = try BigInt.initSet(al, u7(45));
+
+    debug.assert(a.limbs[0] == 45);
+    debug.assert(a.positive == true);
 }
 
 test "bigint comptime_int to" {
