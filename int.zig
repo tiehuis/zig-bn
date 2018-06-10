@@ -8,9 +8,9 @@ const ArrayList = std.ArrayList;
 
 const TypeId = builtin.TypeId;
 
-const Limb = usize;
-const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
-const Log2Limb = math.Log2Int(Limb);
+pub const Limb = usize;
+pub const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
+pub const Log2Limb = math.Log2Int(Limb);
 
 comptime {
     debug.assert(math.floorPowerOfTwo(usize, Limb.bit_count) == Limb.bit_count);
