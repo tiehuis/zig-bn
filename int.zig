@@ -33,6 +33,13 @@ fn wrapInt(allocator: *Allocator, bn: var) *const Int {
                 @compileError("cannot set Int using type " ++ @typeName(T));
             }
         },
+        TypeId.Struct => {
+            if (T == Int) {
+                @compileError("cannot set Int when passing by value, pass by reference instead");
+            } else {
+                @compileError("cannot set Int using type " ++ @typeName(T));
+            }
+        },
         else => {
             var s = allocator.create(Int) catch unreachable;
             s.* = Int{
@@ -150,7 +157,7 @@ pub const Int = struct {
 
     fn bitcount(self: *const Int) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
-        return usize(!self.positive) + u_bit_count;
+        return @boolToInt(!self.positive) + u_bit_count;
     }
 
     pub fn sizeInBase(self: *const Int, base: usize) usize {
@@ -168,7 +175,7 @@ pub const Int = struct {
                 self.positive = value >= 0;
                 self.len = 0;
 
-                var w_value: UT = if (value < 0) UT(-value) else UT(value);
+                var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
                 if (info.bits <= Limb.bit_count) {
                     self.limbs[0] = Limb(w_value);
@@ -231,7 +238,7 @@ pub const Int = struct {
                 var r: UT = 0;
 
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
-                    r = UT(self.limbs[0]);
+                    r = @intCast(UT, self.limbs[0]);
                 } else {
                     for (self.limbs[0..self.len]) |_, ri| {
                         const limb = self.limbs[self.len - ri - 1];
@@ -316,7 +323,7 @@ pub const Int = struct {
             for (self.limbs[0..self.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
-                    const r = u8((limb >> Log2Limb(shift)) & Limb(base - 1));
+                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & Limb(base - 1));
                     const ch = try digitToChar(r, base);
                     try digits.append(ch);
                 }
@@ -350,7 +357,7 @@ pub const Int = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = try digitToChar(u8(r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -361,7 +368,7 @@ pub const Int = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = try digitToChar(u8(r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -496,7 +503,7 @@ pub const Int = struct {
                     .limbs = b.limbs,
                     .len = b.len,
                 };
-                try r.sub(a, bp);
+                try r.sub(a, &bp);
             } else {
                 // (-a) + (b) => b - a
                 const ap = Int{
@@ -505,7 +512,7 @@ pub const Int = struct {
                     .limbs = a.limbs,
                     .len = a.len,
                 };
-                try r.sub(b, ap);
+                try r.sub(b, &ap);
             }
         } else {
             if (a.len >= b.len) {
@@ -534,13 +541,13 @@ pub const Int = struct {
 
         while (i < b.len) : (i += 1) {
             var c: Limb = 0;
-            c += Limb(@addWithOverflow(Limb, a[i], b[i], &r[i]));
-            c += Limb(@addWithOverflow(Limb, r[i], carry, &r[i]));
+            c += @boolToInt(@addWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
             carry = c;
         }
 
         while (i < a.len) : (i += 1) {
-            carry = Limb(@addWithOverflow(Limb, a[i], carry, &r[i]));
+            carry = @boolToInt(@addWithOverflow(Limb, a[i], carry, &r[i]));
         }
 
         r[i] = carry;
@@ -562,7 +569,7 @@ pub const Int = struct {
                     .limbs = b.limbs,
                     .len = b.len,
                 };
-                try r.add(a, bp);
+                try r.add(a, &bp);
             } else {
                 // (-a) - (b) => -(a + b)
                 const ap = Int{
@@ -571,7 +578,7 @@ pub const Int = struct {
                     .limbs = a.limbs,
                     .len = a.len,
                 };
-                try r.add(ap, b);
+                try r.add(&ap, b);
                 r.positive = false;
             }
         } else {
@@ -617,13 +624,13 @@ pub const Int = struct {
 
         while (i < b.len) : (i += 1) {
             var c: Limb = 0;
-            c += Limb(@subWithOverflow(Limb, a[i], b[i], &r[i]));
-            c += Limb(@subWithOverflow(Limb, r[i], borrow, &r[i]));
+            c += @boolToInt(@subWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += @boolToInt(@subWithOverflow(Limb, r[i], borrow, &r[i]));
             borrow = c;
         }
 
         while (i < a.len) : (i += 1) {
-            borrow = Limb(@subWithOverflow(Limb, a[i], borrow, &r[i]));
+            borrow = @boolToInt(@subWithOverflow(Limb, a[i], borrow, &r[i]));
         }
 
         debug.assert(borrow == 0);
@@ -669,7 +676,7 @@ pub const Int = struct {
         var r1: Limb = undefined;
 
         // r1 = a + *carry
-        const c1 = Limb(@addWithOverflow(Limb, a, carry.*, &r1));
+        const c1 = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
         //
@@ -684,7 +691,7 @@ pub const Int = struct {
         const c2 = @truncate(Limb, bc >> Limb.bit_count);
 
         // r1 = r1 + r2
-        const c3 = Limb(@addWithOverflow(Limb, r1, r2, &r1));
+        const c3 = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
 
         // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
         // c2 is at least <= @maxValue(Limb) - 2.
@@ -835,7 +842,7 @@ pub const Int = struct {
         try tmp.shiftLeft(y, Limb.bit_count * (n - t));
         while (x.cmp(&tmp) >= 0) {
             q.limbs[n - t] += 1;
-            try x.sub(x, tmp);
+            try x.sub(x, &tmp);
         }
 
         // 3.
@@ -846,7 +853,7 @@ pub const Int = struct {
                 q.limbs[i - t - 1] = @maxValue(Limb);
             } else {
                 const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
-                const z = Limb(num / DoubleLimb(y.limbs[t]));
+                const z = @intCast(Limb, num / DoubleLimb(y.limbs[t]));
                 q.limbs[i - t - 1] = if (z > @maxValue(Limb)) @maxValue(Limb) else Limb(z);
             }
 
@@ -909,7 +916,7 @@ pub const Int = struct {
         debug.assert(r.len >= a.len + (shift / Limb.bit_count) + 1);
 
         const limb_shift = shift / Limb.bit_count + 1;
-        const interior_limb_shift = Log2Limb(shift % Limb.bit_count);
+        const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
 
         var carry: Limb = 0;
         var i: usize = 0;
@@ -951,7 +958,7 @@ pub const Int = struct {
         debug.assert(r.len >= a.len - (shift / Limb.bit_count));
 
         const limb_shift = shift / Limb.bit_count;
-        const interior_limb_shift = Log2Limb(shift % Limb.bit_count);
+        const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
 
         var carry: Limb = 0;
         var i: usize = 0;
@@ -1914,28 +1921,28 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 
 test "big.int shift-right single" {
     var a = try Int.initSet(al, 0xffff0000);
-    try a.shiftRight(a, 16);
+    try a.shiftRight(&a, 16);
 
     debug.assert((try a.to(u32)) == 0xffff);
 }
 
 test "big.int shift-right multi" {
     var a = try Int.initSet(al, 0xffff0000eeee1111dddd2222cccc3333);
-    try a.shiftRight(a, 67);
+    try a.shiftRight(&a, 67);
 
     debug.assert((try a.to(u64)) == 0x1fffe0001dddc222);
 }
 
 test "big.int shift-left single" {
     var a = try Int.initSet(al, 0xffff);
-    try a.shiftLeft(a, 16);
+    try a.shiftLeft(&a, 16);
 
     debug.assert((try a.to(u64)) == 0xffff0000);
 }
 
 test "big.int shift-left multi" {
     var a = try Int.initSet(al, 0x1fffe0001dddc222);
-    try a.shiftLeft(a, 67);
+    try a.shiftLeft(&a, 67);
 
     debug.assert((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
 }
