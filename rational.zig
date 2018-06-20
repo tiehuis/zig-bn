@@ -32,11 +32,63 @@ pub const Rational = struct {
         try self.q.set(1);
     }
 
+    pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
+        debug.assert(@typeId(T) == builtin.TypeId.Float);
+
+        const UnsignedIntType = @IntType(false, T.bit_count);
+        const f_bits = @bitCast(UnsignedIntType, f);
+
+        const exponent_bits = math.floatExponentBits(T);
+        const exponent_bias = (1 << (exponent_bits - 1)) - 1;
+        const mantissa_bits = math.floatMantissaBits(T);
+
+        const exponent_mask = (1 << exponent_bits) - 1;
+        const mantissa_mask = (1 << mantissa_bits) - 1;
+
+        var exponent = @intCast(i16, (f_bits >> mantissa_bits) & exponent_mask);
+        var mantissa = f_bits & mantissa_mask;
+
+        switch (exponent) {
+            exponent_mask => {
+                return error.NonFiniteFloat;
+            },
+            0 => {
+                // denormal
+                exponent -= exponent_bias - 1;
+            },
+            else => {
+                // normal
+                mantissa |= 1 << mantissa_bits;
+                exponent -= exponent_bias;
+            },
+        }
+
+        var shift: i16 = mantissa_bits - exponent;
+
+        // factor out powers of two early from rational
+        while (mantissa & 1 == 0 and shift > 0) {
+            mantissa >>= 1;
+            shift -= 1;
+        }
+
+        try self.p.set(mantissa);
+        self.p.positive = f >= 0;
+
+        try self.q.set(1);
+        if (shift >= 0) {
+            try self.q.shiftLeft(&self.q, @intCast(usize, shift));
+        } else {
+            try self.p.shiftLeft(&self.p, @intCast(usize, -shift));
+        }
+
+        try self.reduce();
+    }
+
     pub fn setRatio(self: *Rational, p: var, q: var) !void {
         try self.p.set(p);
         try self.q.set(q);
 
-        self.p.positive = (u8(self.p.positive) ^ u8(self.q.positive)) == 0;
+        self.p.positive = (@boolToInt(self.p.positive) ^ @boolToInt(self.q.positive)) == 0;
         self.q.positive = true;
         try self.reduce();
 
@@ -54,7 +106,7 @@ pub const Rational = struct {
         try self.p.copy(a);
         try self.q.copy(b);
 
-        self.p.positive = (u8(self.p.positive) ^ u8(self.q.positive)) == 0;
+        self.p.positive = (@boolToInt(self.p.positive) ^ @boolToInt(self.q.positive)) == 0;
         self.q.positive = true;
         try self.reduce();
     }
@@ -223,6 +275,20 @@ test "big.rational set" {
     debug.assert((try a.p.to(i32)) == 3);
     debug.assert((try a.q.to(i32)) == 1);
 }
+
+test "big.rational setFloat" {
+    var a = try Rational.init(al);
+
+    try a.setFloat(f64, 2.5);
+    debug.assert((try a.p.to(i32)) == 5);
+    debug.assert((try a.q.to(i32)) == 2);
+
+    try a.setFloat(f32, -2.5);
+    debug.assert((try a.p.to(i32)) == -5);
+    debug.assert((try a.q.to(i32)) == 2);
+}
+
+test "big.rational toFloat" {}
 
 test "big.rational copy" {
     var a = try Rational.init(al);
@@ -487,7 +553,7 @@ fn gcdLehmer(r: *Int, xa: *const Int, ya: *const Int) !void {
     //}
 
     // euclidean algorithm
-    debug.assert(x.cmp(y) >= 0);
+    debug.assert(x.cmp(&y) >= 0);
 
     while (!y.eqZero()) {
         try Int.divTrunc(&T, r, &x, &y);
