@@ -820,10 +820,13 @@ pub const Int = struct {
         debug.assert(y.len >= 2);
         debug.assert(x.len >= y.len);
         debug.assert(q.limbs.len >= x.len + y.len - 1);
-        debug.assert(default_capacity >= 3); // see 3.2
 
         var tmp = try Int.init(allocator);
         defer tmp.deinit();
+
+        // see 3.2
+        try tmp.ensureCapacity(3);
+        try r.ensureCapacity(3);
 
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
         const norm_shift = @clz(y.limbs[y.len - 1]);
@@ -1916,6 +1919,18 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 
     debug.assert((try q.to(u128)) == 0xfffffffffffffffffff);
     debug.assert((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
+}
+
+test "big.int div multi-multi q == 1" {
+    var a = try Int.initSet(al, 14159312071241458852455252781510425);
+    var b = try Int.initSet(al, 8848155013097880328132305294270250);
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, &a, &b);
+
+    debug.assert((try q.to(u128)) == 1);
+    debug.assert((try r.to(u256)) == 5311157058143578524322947487240175);
 }
 
 test "big.int shift-right single" {
