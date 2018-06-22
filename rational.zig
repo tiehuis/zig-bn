@@ -32,6 +32,78 @@ pub const Rational = struct {
         try self.q.set(1);
     }
 
+    pub fn setFloatString(self: *Rational, str: []const u8) !void {
+        if (str.len == 0) {
+            return error.InvalidFloatString;
+        }
+
+        const State = enum {
+            Integer,
+            Fractional,
+        };
+
+        var state = State.Integer;
+        var point: ?usize = null;
+
+        var start: usize = 0;
+        if (str[0] == '-') {
+            start += 1;
+        }
+
+        for (str) |c, i| {
+            switch (state) {
+                State.Integer => {
+                    switch (c) {
+                        '.' => {
+                            state = State.Fractional;
+                            point = i;
+                        },
+                        '0'...'9' => {
+                            // okay
+                        },
+                        else => {
+                            return error.InvalidFloatString;
+                        },
+                    }
+                },
+                State.Fractional => {
+                    switch (c) {
+                        '0'...'9' => {
+                            // okay
+                        },
+                        else => {
+                            return error.InvalidFloatString;
+                        },
+                    }
+                },
+            }
+        }
+
+        // TODO: batch the multiplies by 10
+        if (point) |i| {
+            try self.p.setString(10, str[0..i]);
+
+            var j: usize = start;
+            while (j < str.len - i - 1) : (j += 1) {
+                try self.p.mul(&self.p, 10);
+            }
+
+            try self.q.setString(10, str[i + 1 ..]);
+            try self.p.add(&self.p, &self.q);
+
+            try self.q.set(1);
+            var k: usize = i + 1;
+            while (k < str.len) : (k += 1) {
+                try self.q.mul(&self.q, 10);
+            }
+
+            try self.reduce();
+        } else {
+            try self.p.setString(10, str[0..]);
+            try self.q.set(1);
+        }
+    }
+
     // Translated from golang.go/src/math/big/rat.go.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
         debug.assert(@typeId(T) == builtin.TypeId.Float);
@@ -393,6 +465,16 @@ test "big.rational setFloat" {
     //                = 72.1415931207124145885245525278151035308837890625
     debug.assert((try a.p.to(u128)) == 5076513310880537);
     debug.assert((try a.q.to(u128)) == 70368744177664);
+}
+
+test "big.rational setFloatString" {
+    var a = try Rational.init(al);
+
+    try a.setFloatString("72.14159312071241458852455252781510353");
+
+    //                  = 72.1415931207124145885245525278151035308837890625
+    debug.assert((try a.p.to(u128)) == 7214159312071241458852455252781510353);
+    debug.assert((try a.q.to(u128)) == 100000000000000000000000000000000000);
 }
 
 test "big.rational toFloat" {
