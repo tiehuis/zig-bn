@@ -41,8 +41,7 @@ fn wrapInt(allocator: *Allocator, bn: var) *const Int {
             }
         },
         else => {
-            var s = allocator.create(Int) catch unreachable;
-            s.* = Int{
+            var s = allocator.create(Int{
                 .allocator = allocator,
                 .positive = false,
                 .limbs = block: {
@@ -51,7 +50,7 @@ fn wrapInt(allocator: *Allocator, bn: var) *const Int {
                     break :block limbs;
                 },
                 .len = 1,
-            };
+            }) catch unreachable;
             s.set(bn) catch unreachable;
             return s;
         },
