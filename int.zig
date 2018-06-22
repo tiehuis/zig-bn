@@ -154,13 +154,13 @@ pub const Int = struct {
         return !r.isOdd();
     }
 
-    fn bitcount(self: *const Int) usize {
+    pub fn bitCount(self: *const Int) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
         return @boolToInt(!self.positive) + u_bit_count;
     }
 
     pub fn sizeInBase(self: *const Int, base: usize) usize {
-        return (self.bitcount() / math.log2(base)) + 1;
+        return (self.bitCount() / math.log2(base)) + 1;
     }
 
     pub fn set(self: *Int, value: var) Allocator.Error!void {
@@ -230,7 +230,7 @@ pub const Int = struct {
             TypeId.Int => {
                 const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
 
-                if (self.bitcount() > 8 * @sizeOf(UT)) {
+                if (self.bitCount() > 8 * @sizeOf(UT)) {
                     return error.TargetTooSmall;
                 }
 
@@ -1191,25 +1191,25 @@ test "big.int parity" {
     debug.assert(a.isOdd());
 }
 
-test "big.int bitcount + sizeInBase" {
+test "big.int bitCount + sizeInBase" {
     var a = try Int.init(al);
 
     try a.set(0b100);
-    debug.assert(a.bitcount() == 3);
+    debug.assert(a.bitCount() == 3);
     debug.assert(a.sizeInBase(2) >= 3);
     debug.assert(a.sizeInBase(10) >= 1);
 
     try a.set(0xffffffff);
-    debug.assert(a.bitcount() == 32);
+    debug.assert(a.bitCount() == 32);
     debug.assert(a.sizeInBase(2) >= 32);
     debug.assert(a.sizeInBase(10) >= 10);
 
     try a.shiftLeft(&a, 5000);
-    debug.assert(a.bitcount() == 5032);
+    debug.assert(a.bitCount() == 5032);
     debug.assert(a.sizeInBase(2) >= 5032);
     a.positive = false;
 
-    debug.assert(a.bitcount() == 5033);
+    debug.assert(a.bitCount() == 5033);
     debug.assert(a.sizeInBase(2) >= 5033);
 }
 

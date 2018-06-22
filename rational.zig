@@ -32,6 +32,7 @@ pub const Rational = struct {
         try self.q.set(1);
     }
 
+    // Translated from golang.go/src/math/big/rat.go.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
         debug.assert(@typeId(T) == builtin.TypeId.Float);
 
@@ -82,6 +83,100 @@ pub const Rational = struct {
         }
 
         try self.reduce();
+    }
+
+    // Translated from golang.go/src/math/big/rat.go.
+    pub fn toFloat(self: *const Rational, comptime T: type) !T {
+        debug.assert(@typeId(T) == builtin.TypeId.Float);
+
+        const fsize = T.bit_count;
+
+        const msize = math.floatMantissaBits(T);
+        const msize1 = msize + 1;
+        const msize2 = msize1 + 1;
+
+        const esize = math.floatExponentBits(T);
+        const ebias = (1 << (esize - 1)) - 1;
+        const emin = 1 - ebias;
+        const emax = ebias;
+
+        if (self.p.eqZero()) {
+            return 0;
+        }
+
+        // 1. left-shift
+        var exp = @intCast(isize, self.p.bitCount()) - @intCast(isize, self.q.bitCount());
+
+        var a2 = try self.p.clone();
+        defer a2.deinit();
+
+        var b2 = try self.q.clone();
+        defer b2.deinit();
+
+        const shift = msize2 - exp;
+        if (shift >= 0) {
+            try a2.shiftLeft(&a2, @intCast(usize, shift));
+        } else {
+            try b2.shiftLeft(&b2, @intCast(usize, -shift));
+        }
+
+        // 2. compute quotient and remainder
+        var q = try Int.init(self.p.allocator);
+        defer q.deinit();
+
+        // unused
+        var r = try Int.init(self.p.allocator);
+        defer r.deinit();
+
+        try Int.divTrunc(&q, &r, &a2, &b2);
+
+        // TODO: Get low T.bit_count bits Limb may possibly be less
+        var mantissa = q.limbs[0];
+        var have_rem = r.len > 0;
+
+        // 3.
+        if (mantissa >> msize2 == 1) {
+            if (mantissa & 1 == 1) {
+                have_rem = true;
+            }
+            mantissa >>= 1;
+            exp += 1;
+        }
+        if (mantissa >> msize1 != 1) {
+            @panic("expected bits of result");
+        }
+
+        // 4. Rounding
+        if (emin - msize <= exp and exp <= emin) {
+            // denormal
+            const shift1 = @intCast(math.Log2Int(@typeOf(mantissa)), emin - (exp - 1));
+            const lost_bits = mantissa & ((@intCast(Limb, 1) << shift1) - 1);
+            have_rem = have_rem or lost_bits != 0;
+            mantissa >>= shift1;
+            exp = 2 - ebias;
+        }
+
+        // round q using round-half-to-even
+        var exact = !have_rem;
+        if (mantissa & 1 != 0) {
+            exact = false;
+            if (have_rem or (mantissa & 2 != 0)) {
+                mantissa += 1;
+                if (mantissa >= 1 << msize2) {
+                    // 11...1 => 100...0
+                    mantissa >>= 1;
+                    exp += 1;
+                }
+            }
+        }
+        mantissa >>= 1;
+
+        const f = math.scalbn(@intToFloat(T, mantissa), @intCast(i32, exp - msize1));
+        if (math.isInf(f)) {
+            exact = false;
+        }
+
+        return if (self.p.positive) f else -f;
     }
 
     pub fn setRatio(self: *Rational, p: var, q: var) !void {
@@ -286,9 +381,49 @@ test "big.rational setFloat" {
     try a.setFloat(f32, -2.5);
     debug.assert((try a.p.to(i32)) == -5);
     debug.assert((try a.q.to(i32)) == 2);
+
+    try a.setFloat(f32, 3.141593);
+
+    //                = 3.14159297943115234375
+    debug.assert((try a.p.to(u32)) == 3294199);
+    debug.assert((try a.q.to(u32)) == 1048576);
+
+    try a.setFloat(f64, 72.141593120712409172417410926841290461290467124);
+
+    //                = 72.1415931207124145885245525278151035308837890625
+    debug.assert((try a.p.to(u128)) == 5076513310880537);
+    debug.assert((try a.q.to(u128)) == 70368744177664);
 }
 
-test "big.rational toFloat" {}
+test "big.rational toFloat" {
+    var a = try Rational.init(al);
+
+    // = 3.14159297943115234375
+    try a.p.set(3294199);
+    try a.q.set(1048576);
+    debug.assert((try a.toFloat(f64)) == 3.14159297943115234375);
+
+    // = 72.1415931207124145885245525278151035308837890625
+    try a.p.set(5076513310880537);
+    try a.q.set(70368744177664);
+    debug.assert((try a.toFloat(f64)) == 72.141593120712409172417410926841290461290467124);
+}
+
+test "big.rational set/to Float round-trip" {
+    // toFloat allocates memory in a loop so we need to free it
+    var buf: [512 * 1024]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(buf[0..]);
+
+    var a = try Rational.init(&fixed.allocator);
+
+    var prng = std.rand.DefaultPrng.init(0x5EED);
+    var i: usize = 0;
+    while (i < 512) : (i += 1) {
+        const r = prng.random.float(f64);
+        try a.setFloat(f64, r);
+        debug.assert((try a.toFloat(f64)) == r);
+    }
+}
 
 test "big.rational copy" {
     var a = try Rational.init(al);
