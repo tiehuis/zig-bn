@@ -32,6 +32,7 @@ pub const Rational = struct {
         try self.q.set(1);
     }
 
+    // TODO: Accept a/b fractions and exponent form
     pub fn setFloatString(self: *Rational, str: []const u8) !void {
         if (str.len == 0) {
             return error.InvalidFloatString;
@@ -162,6 +163,7 @@ pub const Rational = struct {
         debug.assert(@typeId(T) == builtin.TypeId.Float);
 
         const fsize = T.bit_count;
+        const BitReprType = @IntType(false, T.bit_count);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;
@@ -176,7 +178,7 @@ pub const Rational = struct {
             return 0;
         }
 
-        // 1. left-shift
+        // 1. left-shift a or sub so that a/b is in [1 << msize1, 1 << (msize2 + 1)]
         var exp = @intCast(isize, self.p.bitCount()) - @intCast(isize, self.q.bitCount());
 
         var a2 = try self.p.clone();
@@ -202,11 +204,10 @@ pub const Rational = struct {
 
         try Int.divTrunc(&q, &r, &a2, &b2);
 
-        // TODO: Get low T.bit_count bits Limb may possibly be less
-        var mantissa = q.limbs[0];
+        var mantissa = extractLowBits(q, BitReprType);
         var have_rem = r.len > 0;
 
-        // 3.
+        // 3. q didn't fit in msize2 bits, redo division b2 << 1
         if (mantissa >> msize2 == 1) {
             if (mantissa & 1 == 1) {
                 have_rem = true;
@@ -215,14 +216,14 @@ pub const Rational = struct {
             exp += 1;
         }
         if (mantissa >> msize1 != 1) {
-            @panic("expected bits of result");
+            @panic("unexpected bits in result");
         }
 
         // 4. Rounding
         if (emin - msize <= exp and exp <= emin) {
             // denormal
-            const shift1 = @intCast(math.Log2Int(@typeOf(mantissa)), emin - (exp - 1));
-            const lost_bits = mantissa & ((@intCast(Limb, 1) << shift1) - 1);
+            const shift1 = @intCast(math.Log2Int(BitReprType), emin - (exp - 1));
+            const lost_bits = mantissa & ((@intCast(BitReprType, 1) << shift1) - 1);
             have_rem = have_rem or lost_bits != 0;
             mantissa >>= shift1;
             exp = 2 - ebias;
@@ -301,8 +302,8 @@ pub const Rational = struct {
 
     // p/q > x/y iff p*y > x*q
     fn cmpInternal(a: *const Rational, b: *const Rational, is_abs: bool) !i8 {
-        // TODO: Maybe use divexact and perform p/q and x/y directly to save on memory for
-        // large limbs instead of performing a mul. Check performance difference.
+        // TODO: Would a div compare algorithm of sorts be viable and quicker? Can we avoid
+        // the memory allocations here?
         var q = try Int.init(a.p.allocator);
         defer q.deinit();
 
@@ -481,13 +482,11 @@ test "big.rational toFloat" {
     var a = try Rational.init(al);
 
     // = 3.14159297943115234375
-    try a.p.set(3294199);
-    try a.q.set(1048576);
+    try a.setRatio(3294199, 1048576);
     debug.assert((try a.toFloat(f64)) == 3.14159297943115234375);
 
     // = 72.1415931207124145885245525278151035308837890625
-    try a.p.set(5076513310880537);
-    try a.q.set(70368744177664);
+    try a.setRatio(5076513310880537, 70368744177664);
     debug.assert((try a.toFloat(f64)) == 72.141593120712409172417410926841290461290467124);
 }
 
@@ -821,4 +820,42 @@ test "big.rational gcd large multi-limb result" {
     try gcd(&r, &a, &b);
 
     debug.assert((try r.to(u256)) == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
+}
+
+fn extractLowBits(a: *const Int, comptime T: type) T {
+    debug.assert(@typeId(T) == builtin.TypeId.Int);
+
+    if (T.bit_count <= Limb.bit_count) {
+        return @truncate(T, a.limbs[0]);
+    } else {
+        var r: T = 0;
+        comptime var i: usize = 0;
+
+        // Remainder is always 0 since if T.bit_count >= Limb.bit_count -> Limb | T and both
+        // are powers of two.
+        inline while (i < T.bit_count / Limb.bit_count) : (i += 1) {
+            r |= math.shl(T, a.limbs[i], i * Limb.bit_count);
+        }
+
+        return r;
+    }
+}
+
+test "big.rational extractLowBits" {
+    var a = try Int.initSet(al, 0x11112222333344441234567887654321);
+
+    const a1 = extractLowBits(a, u8);
+    debug.assert(a1 == 0x21);
+
+    const a2 = extractLowBits(a, u16);
+    debug.assert(a2 == 0x4321);
+
+    const a3 = extractLowBits(a, u32);
+    debug.assert(a3 == 0x87654321);
+
+    const a4 = extractLowBits(a, u64);
+    debug.assert(a4 == 0x1234567887654321);
+
+    const a5 = extractLowBits(a, u128);
+    debug.assert(a5 == 0x11112222333344441234567887654321);
 }
