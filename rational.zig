@@ -416,6 +416,201 @@ pub const Rational = struct {
 
 var al = debug.global_allocator;
 
+const SignedDoubleLimb = @IntType(true, DoubleLimb.bit_count);
+
+fn gcd(rma: *Int, x: *const Int, y: *const Int) !void {
+    var r = rma;
+    var aliased = rma == x or rma == y;
+
+    var sr: Int = undefined;
+    if (aliased) {
+        sr = try Int.initCapacity(rma.allocator, math.max(x.len, y.len));
+        r = &sr;
+        aliased = true;
+    }
+    defer if (aliased) {
+        rma.swap(r);
+        r.deinit();
+    };
+
+    if (x.cmp(y) > 0) {
+        try gcdLehmer(r, x, y);
+    } else {
+        try gcdLehmer(r, y, x);
+    }
+}
+
+// Handbook of Applied Cryptography, 14.57
+//
+// r = gcd(x, y) where x, y > 0
+fn gcdLehmer(r: *Int, xa: *const Int, ya: *const Int) !void {
+    debug.assert(xa.positive and ya.positive);
+    debug.assert(xa.cmp(ya) >= 0);
+
+    var x = try xa.clone();
+    defer x.deinit();
+
+    var y = try ya.clone();
+    defer y.deinit();
+
+    var T = try Int.init(r.allocator);
+    defer T.deinit();
+
+    while (y.len > 1) {
+        debug.assert(x.len >= y.len);
+
+        // chop the leading zeros of the limbs and normalize
+        const offset = @clz(x.limbs[x.len - 1]);
+
+        var xh: SignedDoubleLimb = math.shl(Limb, x.limbs[x.len - 1], offset) |
+            math.shr(Limb, x.limbs[x.len - 2], Limb.bit_count - offset);
+
+        var yh: SignedDoubleLimb = if (y.len == x.len)
+            math.shl(Limb, y.limbs[y.len - 1], offset) | math.shr(Limb, y.limbs[y.len - 2], Limb.bit_count - offset)
+        else if (y.len == x.len - 1)
+            math.shr(Limb, y.limbs[y.len - 2], Limb.bit_count - offset)
+        else
+            0;
+
+        var A: SignedDoubleLimb = 1;
+        var B: SignedDoubleLimb = 0;
+        var C: SignedDoubleLimb = 0;
+        var D: SignedDoubleLimb = 1;
+
+        while (yh + C != 0 and yh + D != 0) {
+            const q = @divFloor(xh + A, yh + C);
+            const qp = @divFloor(xh + B, yh + D);
+            if (q != qp) {
+                break;
+            }
+
+            var t = A - q * C;
+            A = C;
+            C = t;
+            t = B - q * D;
+            B = D;
+            D = t;
+
+            t = xh - q * yh;
+            xh = yh;
+            yh = t;
+        }
+
+        if (B == 0) {
+            // T = x % y, r is unused
+            try Int.divTrunc(r, &T, &x, &y);
+            debug.assert(T.positive);
+
+            x.swap(&y);
+            y.swap(&T);
+        } else {
+            // T = Ax + By
+            try r.mul(&x, A);
+            try T.mul(&y, B);
+            try T.add(r, &T);
+
+            // u = Cx + Dy, r as u
+            try x.mul(&x, C);
+            try r.mul(&y, D);
+            try r.add(&x, r);
+
+            x.swap(&T);
+            y.swap(r);
+        }
+    }
+
+    // euclidean algorithm
+    debug.assert(x.cmp(&y) >= 0);
+
+    while (!y.eqZero()) {
+        try Int.divTrunc(&T, r, &x, &y);
+        x.swap(&y);
+        y.swap(r);
+    }
+
+    r.swap(&x);
+}
+
+test "big.rational gcd non-one small" {
+    var a = try Int.initSet(al, 17);
+    var b = try Int.initSet(al, 97);
+    var r = try Int.init(al);
+
+    try gcd(&r, &a, &b);
+
+    debug.assert((try r.to(u32)) == 1);
+}
+
+test "big.rational gcd non-one small" {
+    var a = try Int.initSet(al, 4864);
+    var b = try Int.initSet(al, 3458);
+    var r = try Int.init(al);
+
+    try gcd(&r, &a, &b);
+
+    debug.assert((try r.to(u32)) == 38);
+}
+
+test "big.rational gcd non-one large" {
+    var a = try Int.initSet(al, 0xffffffffffffffff);
+    var b = try Int.initSet(al, 0xffffffffffffffff7777);
+    var r = try Int.init(al);
+
+    try gcd(&r, &a, &b);
+
+    debug.assert((try r.to(u32)) == 4369);
+}
+
+const u256 = @IntType(false, 256);
+
+test "big.rational gcd large multi-limb result" {
+    var a = try Int.initSet(al, 0x12345678123456781234567812345678123456781234567812345678);
+    var b = try Int.initSet(al, 0x12345671234567123456712345671234567123456712345671234567);
+    var r = try Int.init(al);
+
+    try gcd(&r, &a, &b);
+
+    debug.assert((try r.to(u256)) == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
+}
+
+fn extractLowBits(a: *const Int, comptime T: type) T {
+    debug.assert(@typeId(T) == builtin.TypeId.Int);
+
+    if (T.bit_count <= Limb.bit_count) {
+        return @truncate(T, a.limbs[0]);
+    } else {
+        var r: T = 0;
+        comptime var i: usize = 0;
+
+        // Remainder is always 0 since if T.bit_count >= Limb.bit_count -> Limb | T and both
+        // are powers of two.
+        inline while (i < T.bit_count / Limb.bit_count) : (i += 1) {
+            r |= math.shl(T, a.limbs[i], i * Limb.bit_count);
+        }
+
+        return r;
+    }
+}
+
+test "big.rational extractLowBits" {
+    var a = try Int.initSet(al, 0x11112222333344441234567887654321);
+
+    const a1 = extractLowBits(a, u8);
+    debug.assert(a1 == 0x21);
+
+    const a2 = extractLowBits(a, u16);
+    debug.assert(a2 == 0x4321);
+
+    const a3 = extractLowBits(a, u32);
+    debug.assert(a3 == 0x87654321);
+
+    const a4 = extractLowBits(a, u64);
+    debug.assert(a4 == 0x1234567887654321);
+
+    const a5 = extractLowBits(a, u128);
+    debug.assert(a5 == 0x11112222333344441234567887654321);
+}
+
 test "big.rational set" {
     var a = try Rational.init(al);
 
@@ -677,185 +872,4 @@ test "big.rational div" {
 
     try r.setRatio(-23341, 78923);
     debug.assert((try a.cmp(&r)) == 0);
-}
-
-const SignedDoubleLimb = @IntType(true, DoubleLimb.bit_count);
-
-fn gcd(rma: *Int, x: *const Int, y: *const Int) !void {
-    var r = rma;
-    var aliased = rma == x or rma == y;
-
-    var sr: Int = undefined;
-    if (aliased) {
-        sr = try Int.initCapacity(rma.allocator, math.max(x.len, y.len));
-        r = &sr;
-        aliased = true;
-    }
-    defer if (aliased) {
-        rma.swap(r);
-        r.deinit();
-    };
-
-    if (x.cmp(y) > 0) {
-        try gcdLehmer(r, x, y);
-    } else {
-        try gcdLehmer(r, y, x);
-    }
-}
-
-fn gcdLehmer(r: *Int, xa: *const Int, ya: *const Int) !void {
-    debug.assert(xa.positive and ya.positive);
-    debug.assert(xa.cmp(ya) >= 0);
-
-    var x = try xa.clone();
-    defer x.deinit();
-
-    var y = try ya.clone();
-    defer y.deinit();
-
-    var T = try Int.init(r.allocator);
-    defer T.deinit();
-
-    //while (y.limbs.len > 1) {
-    //    var xh: SignedDoubleLimb = x.limbs[x.len - 1];
-    //    var yh: SignedDoubleLimb = y.limbs[y.len - 1];
-
-    //    var A: SignedDoubleLimb = 1;
-    //    var B: SignedDoubleLimb = 0;
-    //    var C: SignedDoubleLimb = 0;
-    //    var D: SignedDoubleLimb = 1;
-
-    //    while (yh + C != 0 and yh + D != 0) {
-    //        const q = @divFloor(xh + A, yh + C);
-    //        const qp = @divFloor(xh + B, yh + D);
-    //        if (q != qp) {
-    //            break;
-    //        }
-
-    //        // All these are single limbs, can we use a DoubleLimb signed?
-    //        var t = A - q * C;
-    //        A = C;
-    //        C = t;
-    //        t = B - q * D;
-    //        B = D;
-    //        D = t;
-
-    //        t = xh - q * yh;
-    //        xh = yh;
-    //        yh = t;
-    //    }
-
-    //    if (B == 0) {
-    //        // T = x % y, r is unused
-    //        try Int.divTrunc(r, &T, x, y);
-    //        debug.assert(T.positive);
-
-    //        x.swap(&y);
-    //        y.swap(&T);
-    //    } else {
-    //        // T = Ax + By
-    //        try r.mul(x, A);
-    //        try T.mul(y, B);
-    //        try T.add(r, &T);
-
-    //        // u = Cx + Dy, r as u
-    //        try x.mul(x, C);
-    //        try r.mul(y, D);
-    //        try r.add(x, r);
-
-    //        x.swap(&T);
-    //        y.swap(r);
-    //    }
-    //}
-
-    // euclidean algorithm
-    debug.assert(x.cmp(&y) >= 0);
-
-    while (!y.eqZero()) {
-        try Int.divTrunc(&T, r, &x, &y);
-        x.swap(&y);
-        y.swap(r);
-    }
-
-    r.swap(&x);
-}
-
-test "big.rational gcd non-one small" {
-    var a = try Int.initSet(al, 17);
-    var b = try Int.initSet(al, 97);
-    var r = try Int.init(al);
-
-    try gcd(&r, &a, &b);
-
-    debug.assert((try r.to(u32)) == 1);
-}
-
-test "big.rational gcd non-one small" {
-    var a = try Int.initSet(al, 4864);
-    var b = try Int.initSet(al, 3458);
-    var r = try Int.init(al);
-
-    try gcd(&r, &a, &b);
-
-    debug.assert((try r.to(u32)) == 38);
-}
-
-test "big.rational gcd non-one large" {
-    var a = try Int.initSet(al, 0xffffffffffffffff);
-    var b = try Int.initSet(al, 0xffffffffffffffff7777);
-    var r = try Int.init(al);
-
-    try gcd(&r, &a, &b);
-
-    debug.assert((try r.to(u32)) == 4369);
-}
-
-const u256 = @IntType(false, 256);
-
-test "big.rational gcd large multi-limb result" {
-    var a = try Int.initSet(al, 0x12345678123456781234567812345678123456781234567812345678);
-    var b = try Int.initSet(al, 0x12345671234567123456712345671234567123456712345671234567);
-    var r = try Int.init(al);
-
-    try gcd(&r, &a, &b);
-
-    debug.assert((try r.to(u256)) == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
-}
-
-fn extractLowBits(a: *const Int, comptime T: type) T {
-    debug.assert(@typeId(T) == builtin.TypeId.Int);
-
-    if (T.bit_count <= Limb.bit_count) {
-        return @truncate(T, a.limbs[0]);
-    } else {
-        var r: T = 0;
-        comptime var i: usize = 0;
-
-        // Remainder is always 0 since if T.bit_count >= Limb.bit_count -> Limb | T and both
-        // are powers of two.
-        inline while (i < T.bit_count / Limb.bit_count) : (i += 1) {
-            r |= math.shl(T, a.limbs[i], i * Limb.bit_count);
-        }
-
-        return r;
-    }
-}
-
-test "big.rational extractLowBits" {
-    var a = try Int.initSet(al, 0x11112222333344441234567887654321);
-
-    const a1 = extractLowBits(a, u8);
-    debug.assert(a1 == 0x21);
-
-    const a2 = extractLowBits(a, u16);
-    debug.assert(a2 == 0x4321);
-
-    const a3 = extractLowBits(a, u32);
-    debug.assert(a3 == 0x87654321);
-
-    const a4 = extractLowBits(a, u64);
-    debug.assert(a4 == 0x1234567887654321);
-
-    const a5 = extractLowBits(a, u128);
-    debug.assert(a5 == 0x11112222333344441234567887654321);
 }
