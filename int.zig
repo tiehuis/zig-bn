@@ -200,7 +200,7 @@ pub const Int = struct {
                 self.positive = value >= 0;
                 self.len = req_limbs;
 
-                if (w_value <= @maxValue(Limb)) {
+                if (w_value <= math.maxInt(Limb)) {
                     self.limbs[0] = w_value;
                 } else {
                     const mask = (1 << Limb.bit_count) - 1;
@@ -338,7 +338,7 @@ pub const Int = struct {
             }
         } // Non power-of-two: batch divisions per word size.
         else {
-            const digits_per_limb = math.log(Limb, base, @maxValue(Limb));
+            const digits_per_limb = math.log(Limb, base, math.maxInt(Limb));
             var limb_base: Limb = 1;
             var j: usize = 0;
             while (j < digits_per_limb) : (j += 1) {
@@ -693,7 +693,7 @@ pub const Int = struct {
         const c3 = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
 
         // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
-        // c2 is at least <= @maxValue(Limb) - 2.
+        // c2 is at least <= math.maxInt(Limb) - 2.
         carry.* = c1 + c2 + c3;
 
         return r1;
@@ -852,11 +852,11 @@ pub const Int = struct {
         while (i > t) : (i -= 1) {
             // 3.1
             if (x.limbs[i] == y.limbs[t]) {
-                q.limbs[i - t - 1] = @maxValue(Limb);
+                q.limbs[i - t - 1] = math.maxInt(Limb);
             } else {
                 const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
                 const z = @intCast(Limb, num / DoubleLimb(y.limbs[t]));
-                q.limbs[i - t - 1] = if (z > @maxValue(Limb)) @maxValue(Limb) else Limb(z);
+                q.limbs[i - t - 1] = if (z > math.maxInt(Limb)) math.maxInt(Limb) else Limb(z);
             }
 
             // 3.2
@@ -1073,7 +1073,6 @@ pub const Int = struct {
 // They will still run on larger than this and should pass, but the multi-limb code-paths
 // may be untested in some cases.
 
-const u256 = @IntType(false, 256);
 var al = debug.global_allocator;
 
 test "big.int comptime_int set" {
@@ -1084,7 +1083,7 @@ test "big.int comptime_int set" {
 
     comptime var i: usize = 0;
     inline while (i < s_limb_count) : (i += 1) {
-        const result = Limb(s & @maxValue(Limb));
+        const result = Limb(s & math.maxInt(Limb));
         s >>= Limb.bit_count / 2;
         s >>= Limb.bit_count / 2;
         debug.assert(a.limbs[i] == result);
@@ -1342,7 +1341,7 @@ test "big.int compare similar" {
 }
 
 test "big.int compare different limb size" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
     var b = try Int.initSet(al, 1);
 
     debug.assert(a.cmpAbs(&b) == 1);
@@ -1396,16 +1395,16 @@ test "big.int add single-single" {
 }
 
 test "big.int add multi-single" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
     var b = try Int.initSet(al, 1);
 
     var c = try Int.init(al);
 
     try c.add(&a, &b);
-    debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
+    debug.assert((try c.to(DoubleLimb)) == math.maxInt(Limb) + 2);
 
     try c.add(&b, &a);
-    debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
+    debug.assert((try c.to(DoubleLimb)) == math.maxInt(Limb) + 2);
 }
 
 test "big.int add multi-multi" {
@@ -1467,13 +1466,13 @@ test "big.int sub single-single" {
 }
 
 test "big.int sub multi-single" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
     var b = try Int.initSet(al, 1);
 
     var c = try Int.init(al);
     try c.sub(&a, &b);
 
-    debug.assert((try c.to(Limb)) == @maxValue(Limb));
+    debug.assert((try c.to(Limb)) == math.maxInt(Limb));
 }
 
 test "big.int sub multi-multi" {
@@ -1529,13 +1528,13 @@ test "big.int mul single-single" {
 }
 
 test "big.int mul multi-single" {
-    var a = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb));
     var b = try Int.initSet(al, 2);
 
     var c = try Int.init(al);
     try c.mul(&a, &b);
 
-    debug.assert((try c.to(DoubleLimb)) == 2 * @maxValue(Limb));
+    debug.assert((try c.to(DoubleLimb)) == 2 * math.maxInt(Limb));
 }
 
 test "big.int mul multi-multi" {
@@ -1551,29 +1550,29 @@ test "big.int mul multi-multi" {
 }
 
 test "big.int mul alias r with a" {
-    var a = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb));
     var b = try Int.initSet(al, 2);
 
     try a.mul(&a, &b);
 
-    debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == 2 * math.maxInt(Limb));
 }
 
 test "big.int mul alias r with b" {
-    var a = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb));
     var b = try Int.initSet(al, 2);
 
     try a.mul(&b, &a);
 
-    debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == 2 * math.maxInt(Limb));
 }
 
 test "big.int mul alias r with a and b" {
-    var a = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb));
 
     try a.mul(&a, &a);
 
-    debug.assert((try a.to(DoubleLimb)) == @maxValue(Limb) * @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == math.maxInt(Limb) * math.maxInt(Limb));
 }
 
 test "big.int mul a*0" {
@@ -1988,8 +1987,8 @@ test "big.int bitwise and simple" {
 }
 
 test "big.int bitwise and multi-limb" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
-    var b = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
+    var b = try Int.initSet(al, math.maxInt(Limb));
 
     try a.bitAnd(&a, &b);
 
@@ -2006,12 +2005,12 @@ test "big.int bitwise xor simple" {
 }
 
 test "big.int bitwise xor multi-limb" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
-    var b = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
+    var b = try Int.initSet(al, math.maxInt(Limb));
 
     try a.bitXor(&a, &b);
 
-    debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == (math.maxInt(Limb) + 1) ^ math.maxInt(Limb));
 }
 
 test "big.int bitwise or simple" {
@@ -2024,13 +2023,13 @@ test "big.int bitwise or simple" {
 }
 
 test "big.int bitwise or multi-limb" {
-    var a = try Int.initSet(al, @maxValue(Limb) + 1);
-    var b = try Int.initSet(al, @maxValue(Limb));
+    var a = try Int.initSet(al, math.maxInt(Limb) + 1);
+    var b = try Int.initSet(al, math.maxInt(Limb));
 
     try a.bitOr(&a, &b);
 
     // TODO: big.int.cpp or is wrong on multi-limb.
-    debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) + @maxValue(Limb));
+    debug.assert((try a.to(DoubleLimb)) == (math.maxInt(Limb) + 1) + math.maxInt(Limb));
 }
 
 test "big.int var args" {

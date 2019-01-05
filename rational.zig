@@ -561,8 +561,6 @@ test "big.rational gcd non-one large" {
     debug.assert((try r.to(u32)) == 4369);
 }
 
-const u256 = @IntType(false, 256);
-
 test "big.rational gcd large multi-limb result" {
     var a = try Int.initSet(al, 0x12345678123456781234567812345678123456781234567812345678);
     var b = try Int.initSet(al, 0x12345671234567123456712345671234567123456712345671234567);
@@ -573,7 +571,7 @@ test "big.rational gcd large multi-limb result" {
     debug.assert((try r.to(u256)) == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
 }
 
-fn extractLowBits(a: *const Int, comptime T: type) T {
+fn extractLowBits(a: Int, comptime T: type) T {
     debug.assert(@typeId(T) == builtin.TypeId.Int);
 
     if (T.bit_count <= Limb.bit_count) {
